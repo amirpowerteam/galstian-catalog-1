@@ -1,9 +1,0 @@
-
-{
-  "name": "Portable Furniture Catalog",
-  "description": "A single-file, offline-first, portable digital catalog for a furniture showroom. It runs in any modern browser without installation and saves all data locally. Features AI-powered description generation and data import/export.",
-  "requestFramePermissions": [
-    "camera",
-    "microphone"
-  ]
-}
