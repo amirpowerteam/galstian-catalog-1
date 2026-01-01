@@ -5,8 +5,8 @@
 (async function(){
   try{
     const base = 'https://github.com/amirpowerteam/galstian-catalog-1/releases/download/v1.0.0-deploy/';
-    const welcomeUrl = base + 'boloc-2.mp4';
-    const heroUrl = base + 'boloc-3.mp4';
+    const welcomeUrl = base + 'boloc2.mp4';
+    const heroUrl = base + 'boloc3.mp4';
 
     console.log('Setting release video URLs:');
     console.log(' welcome_background_video ->', welcomeUrl);
