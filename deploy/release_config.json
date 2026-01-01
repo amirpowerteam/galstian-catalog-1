@@ -1,0 +1,8 @@
+{
+  "release_config_version": "v1",
+  "welcome_video": "https://github.com/amirpowerteam/galstian-catalog-1/releases/download/v1.0.0-deploy/boloc2.mp4",
+  "welcome_background_video": "https://github.com/amirpowerteam/galstian-catalog-1/releases/download/v1.0.0-deploy/boloc2.mp4",
+  "hero_media_block": {
+    "mediaUrl": "https://github.com/amirpowerteam/galstian-catalog-1/releases/download/v1.0.0-deploy/boloc3.mp4"
+  }
+}

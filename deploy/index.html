@@ -4713,6 +4713,60 @@ python -m http.server 8080
                     addToast("Showroom Mode Activated", "success");
                 }, [addToast]);
 
+                // Reload lightweight release config (merge-safe, does NOT wipe stores)
+                const reloadReleaseConfig = useCallback(async () => {
+                    setIsLoading(true);
+                    try {
+                        const resp = await fetch('release_config.json', { cache: 'no-store' });
+                        if (!resp.ok) throw new Error('Failed to fetch release_config.json');
+                        const j = await resp.json();
+                        if (!j) throw new Error('Invalid release config');
+
+                        // Only write a small set of config keys — merge hero_media_block safely
+                        try { if (j.welcome_video) await dbPut(STORES.CONFIG, { key: 'welcome_video', value: j.welcome_video }); } catch(e){}
+                        try { if (j.welcome_background_video) await dbPut(STORES.CONFIG, { key: 'welcome_background_video', value: j.welcome_background_video }); } catch(e){}
+                        try {
+                            if (j.hero_media_block) {
+                                const existing = await dbGet(STORES.CONFIG, 'hero_media_block');
+                                const cur = existing && existing.value ? existing.value : {};
+                                const merged = Object.assign({}, cur, j.hero_media_block);
+                                await dbPut(STORES.CONFIG, { key: 'hero_media_block', value: merged });
+                                try { setHeroMediaBlock(merged); } catch(e){}
+                            }
+                        } catch(e){}
+
+                        // Update runtime state for welcome video/background where possible
+                        try { const wv = await dbGet(STORES.CONFIG, 'welcome_video'); if (wv && wv.value) setWelcomeVideo(wv.value); } catch(e){}
+                        try { const wbv = await dbGet(STORES.CONFIG, 'welcome_background_video'); if (wbv && wbv.value) setWelcomeBackgroundVideo(wbv.value); } catch(e){}
+                        try { const h = await dbGet(STORES.CONFIG, 'hero_media_block'); if (h && h.value) setHeroMediaBlock(h.value); } catch(e){}
+
+                        // Attempt to fetch blobs and set any <video> elements to blob URLs
+                        try{
+                            const urls = [];
+                            if (j.welcome_video) urls.push(j.welcome_video);
+                            if (j.welcome_background_video) urls.push(j.welcome_background_video);
+                            if (j.hero_media_block && j.hero_media_block.mediaUrl) urls.push(j.hero_media_block.mediaUrl);
+                            for (const url of urls){
+                                try{
+                                    const r = await fetch(url, { mode: 'cors' });
+                                    if (!r.ok) continue;
+                                    const b = await r.blob();
+                                    const blobUrl = URL.createObjectURL(b);
+                                    const filename = url.split('/').pop();
+                                    document.querySelectorAll('video').forEach(v=>{
+                                        try{ const src = v.currentSrc || v.src || ''; if (!src || src.includes(filename) || src === url) { v.src = blobUrl; v.setAttribute('data-release-applied','1'); } }catch(e){}
+                                    });
+                                }catch(e){}
+                            }
+                        }catch(e){}
+
+                    } catch (err) {
+                        console.error('Reload release config failed', err);
+                    } finally {
+                        setIsLoading(false);
+                    }
+                }, [addToast]);
+
                 // Automatic cache-invalidation: check remote backup headers (ETag/Last-Modified)
                 useEffect(() => {
                     let stop = false;
@@ -4762,9 +4816,41 @@ python -m http.server 8080
                             } catch (e) {
                                 console.warn('Remote backup check failed:', e && (e.message || e));
                             }
-                        }
-                    checkRemote();
-                    const t = setInterval(checkRemote, 5 * 60 * 1000);
+                                                }
+                                        // Also check a lightweight `release_config.json` for incremental welcome/hero updates.
+                                        async function checkReleaseConfig(){
+                                            try{
+                                                const head = await fetch('release_config.json', { method: 'HEAD', cache: 'no-store' });
+                                                if (head && head.ok){
+                                                    const et = head.headers.get('etag') || head.headers.get('last-modified');
+                                                    if (et){
+                                                        const stored = localStorage.getItem('release_config_etag');
+                                                        if (stored !== et){
+                                                            localStorage.setItem('release_config_etag', et);
+                                                            console.info('[checkRemote] release_config changed, applying incremental config');
+                                                            try{ await reloadReleaseConfig(); }catch(e){ console.warn('reloadReleaseConfig failed', e); }
+                                                        }
+                                                        return;
+                                                    }
+                                                }
+                                            }catch(e){ /* ignore HEAD errors */ }
+                                            try{
+                                                const resp = await fetch('release_config.json', { cache: 'no-store' });
+                                                if (!resp.ok) return;
+                                                const j = await resp.json();
+                                                const ver = j && j.release_config_version ? j.release_config_version : null;
+                                                if (!ver) return;
+                                                const storedVer = localStorage.getItem('release_config_version');
+                                                if (storedVer !== ver){
+                                                    localStorage.setItem('release_config_version', ver);
+                                                    try{ await reloadReleaseConfig(); }catch(e){ console.warn('reloadReleaseConfig failed', e); }
+                                                }
+                                            }catch(e){ /* ignore */ }
+                                        }
+
+                                        checkRemote();
+                                        checkReleaseConfig();
+                                        const t = setInterval(()=>{ checkRemote(); checkReleaseConfig(); }, 5 * 60 * 1000);
                     // Also trigger checks when page becomes visible/focused or when network returns
                     const onVisible = () => { if (document.visibilityState === 'visible') checkRemote(); };
                     const onFocus = () => { checkRemote(); };
