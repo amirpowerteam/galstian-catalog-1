@@ -12,14 +12,14 @@
     console.log(' welcome_background_video ->', welcomeUrl);
     console.log(' hero_media_block.mediaUrl ->', heroUrl);
 
-    // Prefer existing helper if available
-    if (typeof dbPut === 'function' && typeof STORES !== 'undefined'){
-      // Only set the welcome/welcome_video and hero media URL.
-      // Do NOT force the welcome background type to 'video' so we don't overwrite user's wallpaper preference.
+    // Prefer existing helper if available. Merge hero_media_block instead of overwriting.
+    if (typeof dbPut === 'function' && typeof dbGet === 'function' && typeof STORES !== 'undefined'){
+      const existingHero = (await dbGet(STORES.CONFIG, 'hero_media_block'))?.value || {};
+      const mergedHero = Object.assign({}, existingHero, { mediaType: 'video', mediaUrl: heroUrl });
       await dbPut(STORES.CONFIG, { key: 'welcome_video', value: welcomeUrl });
       await dbPut(STORES.CONFIG, { key: 'welcome_background_video', value: welcomeUrl });
-      await dbPut(STORES.CONFIG, { key: 'hero_media_block', value: { mediaType: 'video', mediaUrl: heroUrl, heading: '', body: '' } });
-      console.log('Config updated via dbPut. Reloading page...');
+      await dbPut(STORES.CONFIG, { key: 'hero_media_block', value: mergedHero });
+      console.log('Config updated via dbPut (merged hero). Reloading page...');
       setTimeout(()=>location.reload(), 700);
       return;
     }
@@ -38,10 +38,18 @@
     const db = await openDB('PortableCatalogDB_Lazy_V1', 1);
     const tx = db.transaction('config', 'readwrite');
     const store = tx.objectStore('config');
-    // Don't change welcome_background_type here.
-    store.put({ key: 'welcome_video', value: welcomeUrl });
-    store.put({ key: 'welcome_background_video', value: welcomeUrl });
-    store.put({ key: 'hero_media_block', value: { mediaType: 'video', mediaUrl: heroUrl, heading: '', body: '' } });
+    // Read existing hero_media_block and merge heading/body if present.
+    const getReq = store.get('hero_media_block');
+    getReq.onsuccess = ()=>{
+      const cur = getReq.result ? getReq.result.value || {} : {};
+      const merged = Object.assign({}, cur, { mediaType: 'video', mediaUrl: heroUrl });
+      try{
+        store.put({ key: 'welcome_video', value: welcomeUrl });
+        store.put({ key: 'welcome_background_video', value: welcomeUrl });
+        store.put({ key: 'hero_media_block', value: merged });
+      }catch(e){ console.error('Error writing merged config', e); }
+    };
+    getReq.onerror = (e)=>{ console.error('Failed to read existing hero_media_block', e); };
 
     tx.oncomplete = ()=>{ console.log('IndexedDB config updated. Reloading page...'); setTimeout(()=>location.reload(),700); };
     tx.onerror = (e)=>{ console.error('IndexedDB write failed', e); };

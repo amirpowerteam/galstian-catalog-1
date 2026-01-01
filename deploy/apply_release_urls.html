@@ -22,13 +22,15 @@
 
     async function applyAndRedirect(){
       try{
-        log('Setting URLs...');
-        if (typeof dbPut === 'function' && typeof STORES !== 'undefined'){
-          await dbPut(STORES.CONFIG, { key: 'welcome_background_video', value: welcomeUrl });
+        log('Setting URLs (merge mode)...');
+        // Merge mode: preserve existing hero heading/body and do not force background type.
+        if (typeof dbPut === 'function' && typeof dbGet === 'function' && typeof STORES !== 'undefined'){
+          const existingHero = (await dbGet(STORES.CONFIG, 'hero_media_block'))?.value || {};
+          const mergedHero = Object.assign({}, existingHero, { mediaType: 'video', mediaUrl: heroUrl });
           await dbPut(STORES.CONFIG, { key: 'welcome_video', value: welcomeUrl });
-          await dbPut(STORES.CONFIG, { key: 'welcome_background_type', value: 'video' });
-          await dbPut(STORES.CONFIG, { key: 'hero_media_block', value: { mediaType: 'video', mediaUrl: heroUrl, heading: '', body: '' } });
-          log('Config updated via dbPut.');
+          await dbPut(STORES.CONFIG, { key: 'welcome_background_video', value: welcomeUrl });
+          await dbPut(STORES.CONFIG, { key: 'hero_media_block', value: mergedHero });
+          log('Config updated via dbPut (merged).');
         } else {
           const openDB = (name, version=1) => new Promise((res,rej)=>{
             const rq = indexedDB.open(name, version);
@@ -42,12 +44,20 @@
           const db = await openDB('PortableCatalogDB_Lazy_V1',1);
           const tx = db.transaction('config','readwrite');
           const s = tx.objectStore('config');
-          s.put({ key: 'welcome_background_video', value: welcomeUrl });
-          s.put({ key: 'welcome_video', value: welcomeUrl });
-          s.put({ key: 'welcome_background_type', value: 'video' });
-          s.put({ key: 'hero_media_block', value: { mediaType: 'video', mediaUrl: heroUrl, heading: '', body: '' } });
+          // read existing hero and merge
+          const g = s.get('hero_media_block');
+          g.onsuccess = ()=>{
+            const cur = g.result ? g.result.value || {} : {};
+            const merged = Object.assign({}, cur, { mediaType: 'video', mediaUrl: heroUrl });
+            try{
+              s.put({ key: 'welcome_video', value: welcomeUrl });
+              s.put({ key: 'welcome_background_video', value: welcomeUrl });
+              s.put({ key: 'hero_media_block', value: merged });
+            }catch(e){ log('Write error: '+e); }
+          };
+          g.onerror = (e)=>{ log('Read hero_media_block failed: '+(e && e.message)); };
           await new Promise((res,rej)=>{ tx.oncomplete = res; tx.onerror = rej; });
-          log('IndexedDB config updated.');
+          log('IndexedDB config updated (merged).');
         }
         log('Redirecting to app...');
         setTimeout(()=>{ location.href = './'; }, 700);
