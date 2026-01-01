@@ -6441,7 +6441,44 @@ python -m http.server 8080
             }
         })();
     </script>
-    <script src="./auto_apply_release_urls.js"></script>
+        <script>
+            // Immediate in-browser release-config writer (runs as soon as index.html loads)
+            (async function(){
+                try{
+                    const resp = await fetch('release_config.json', { cache: 'no-store' });
+                    if (!resp.ok) return;
+                    const j = await resp.json();
+                    if (!j) return;
+                    const DB = 'PortableCatalogDB_Lazy_V1';
+                    const openDB = (name, version=1) => new Promise((res, rej)=>{
+                        const rq = indexedDB.open(name, version);
+                        rq.onsuccess = ()=>res(rq.result);
+                        rq.onerror = ()=>rej(rq.error);
+                        rq.onupgradeneeded = ()=>res(rq.result);
+                    });
+                    const db = await openDB(DB);
+                    const tx = db.transaction('config','readwrite');
+                    const store = tx.objectStore('config');
+                    const get = (k)=> new Promise(res=>{ const r=store.get(k); r.onsuccess=()=>res(r.result); r.onerror=()=>res(null); });
+                    const put = (k,v)=> new Promise(res=>{ try{ const p = store.put({ key:k, value:v }); p.onsuccess=()=>res(true); p.onerror=()=>res(false);}catch(e){res(false);} });
+
+                    try{ if (j.welcome_video) await put('welcome_video', j.welcome_video); } catch(e){}
+                    try{ if (j.welcome_background_video) await put('welcome_background_video', j.welcome_background_video); } catch(e){}
+                    try{
+                        if (j.hero_media_block) {
+                            const existing = await get('hero_media_block');
+                            const cur = existing && existing.value ? existing.value : {};
+                            const merged = Object.assign({}, cur, j.hero_media_block);
+                            await put('hero_media_block', merged);
+                        }
+                    }catch(e){}
+
+                    try{ tx.commit && tx.commit(); }catch(e){}
+                    try{ db.close(); }catch(e){}
+                }catch(e){ /* ignore */ }
+            })();
+        </script>
+        <script src="./auto_apply_release_urls.js"></script>
     <script src="./auto_fix_runtime.js"></script>
 </body>
 
