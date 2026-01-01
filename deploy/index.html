@@ -1832,6 +1832,22 @@ python -m http.server 8080
                 );
             }
 
+            // Resolve a possibly-relative URL against the current page directory.
+            // This ensures JSON values like `assets/boloc2.mp4` work both on local
+            // servers and when the site is hosted under a repo subpath on GitHub Pages.
+            function resolveUrl(maybeUrl) {
+                try {
+                    if (!maybeUrl) return maybeUrl;
+                    const s = String(maybeUrl).trim();
+                    if (!s) return null;
+                    if (/^data:/i.test(s)) return s;
+                    if (/^https?:\/\//i.test(s)) return s;
+                    if (s.startsWith('/')) return s; // absolute path already
+                    const base = location.href.split('/').slice(0, -1).join('/') + '/';
+                    return new URL(s, base).toString();
+                } catch (e) { return maybeUrl; }
+            }
+
             function WelcomeSettingsModal({ isOpen, onClose, onSave, addToast }) {
                 if (!isOpen) return null;
 
@@ -1861,12 +1877,12 @@ python -m http.server 8080
                             , dbGet(STORES.CONFIG, 'hero_media_block')
                         ]);
                         setImages(imgConf?.value || []);
-                        setPromoVideo(promoVidConf?.value || null);
+                        setPromoVideo(resolveUrl(promoVidConf?.value || null));
                         setBackgroundType(bgTypeConf?.value || 'photos');
-                        setBackgroundVideo(bgVidConf?.value || null);
+                        setBackgroundVideo(resolveUrl(bgVidConf?.value || null));
                         const heroConf = heroBlockConf?.value || null;
                         setHeroMediaType(heroConf?.mediaType || 'video');
-                        setHeroMediaUrl(heroConf?.mediaUrl || null);
+                        setHeroMediaUrl(resolveUrl(heroConf?.mediaUrl || null));
                         setHeroHeading(heroConf?.heading || '');
                         setHeroBody(heroConf?.body || '');
                         setIsProcessing(false);
