@@ -12,9 +12,9 @@ dist
 dist-ssr
 
 # Ignore local release assets and uploaded media (videos kept outside git)
-release-assets-local/
-uploaded_media/
-deploy/assets/*.mp4
+# release-assets-local/  # disabled: videos will be tracked in deploy/assets for same-origin playback
+# uploaded_media/        # disabled: using copies in deploy/assets
+# deploy/assets/*.mp4    # disabled: now tracking deploy assets explicitly
 
 *.local
 
