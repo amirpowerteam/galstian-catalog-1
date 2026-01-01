@@ -33,3 +33,6 @@ catalog_backup_lazy_*.json
 
 # Optional node modules
 node_modules/
+
+# Local folder for large release assets (kept out of the repo)
+release-assets-local/
