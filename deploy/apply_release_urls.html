@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Apply Release URLs</title>
+  <style>body{font-family:Arial,Helvetica,sans-serif;padding:24px;background:#f7fafc;color:#0f172a}button{padding:10px 14px;border-radius:8px;border:0;background:#0ea5e9;color:#fff;font-size:16px;cursor:pointer}pre{background:#fff;padding:12px;border-radius:8px;border:1px solid #e2e8f0}</style>
+</head>
+<body>
+  <h1>اعمال خودکار آدرس ویدیوها</h1>
+  <p>این صفحه آدرس ویدیوهای منتشرشده در Release را در حافظه‌ی مرورگر ثبت می‌کند تا ویدیوها روی موبایل قابل پخش شوند.</p>
+  <p><button id="run">اجرا کردن Apply</button></p>
+  <pre id="out">در حال آماده‌سازی…</pre>
+
+  <script>
+    async function runApply(){
+      try{
+        document.getElementById('out').textContent = 'در حال اجرا...';
+        // load the auto_apply_release_urls.js script if not already present
+        if (!window.__autoApplyLoaded){
+          await new Promise((res,rej)=>{
+            const s = document.createElement('script');
+            s.src = './auto_apply_release_urls.js';
+            s.onload = ()=>{ window.__autoApplyLoaded = true; res(); };
+            s.onerror = ()=>{ rej(new Error('بارگذاری اسکریپت ناموفق')); };
+            document.head.appendChild(s);
+          });
+        }
+        // dispatch an event listeners in the script will react to, but many actions run on load.
+        document.getElementById('out').textContent = 'با موفقیت اجرا شد — لطفاً صفحهٔ برنامه را باز یا رفرش کنید.';
+      }catch(e){ document.getElementById('out').textContent = 'خطا: ' + (e && e.message ? e.message : e); }
+    }
+    document.getElementById('run').addEventListener('click', runApply);
+    // Try auto-run once
+    window.addEventListener('load', ()=>setTimeout(runApply, 300));
+  </script>
+</body>
+</html>
