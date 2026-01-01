@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="fa">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Apply Release Video URLs</title>
+  <style>body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;color:#111;padding:24px;}button{padding:12px 18px;font-size:16px}</style>
+</head>
+<body>
+  <h1>اعمال لینک‌های ویدیو از Release</h1>
+  <p>این صفحه لینک‌های ویدیو را در IndexedDB برنامه می‌نویسد و سپس به صفحهٔ اصلی اپ برمی‌گردد.</p>
+  <p><strong>نکته:</strong> این صفحه باید روی همان origin (مثلاً GitHub Pages) باز شود تا بتواند IndexedDB اپ را به‌روزرسانی کند.</p>
+  <button id="apply">اعمال لینک‌ها و بازگشت به اپ</button>
+  <pre id="log" style="margin-top:12px;color:#444"></pre>
+
+  <script>
+  (function(){
+    const base = 'https://github.com/amirpowerteam/galstian-catalog-1/releases/download/v1.0.0-deploy/';
+    const welcomeUrl = base + 'boloc2.mp4';
+    const heroUrl = base + 'boloc3.mp4';
+    const log = (s)=>{document.getElementById('log').textContent += s + '\n';};
+
+    async function applyAndRedirect(){
+      try{
+        log('Setting URLs...');
+        if (typeof dbPut === 'function' && typeof STORES !== 'undefined'){
+          await dbPut(STORES.CONFIG, { key: 'welcome_background_video', value: welcomeUrl });
+          await dbPut(STORES.CONFIG, { key: 'welcome_video', value: welcomeUrl });
+          await dbPut(STORES.CONFIG, { key: 'welcome_background_type', value: 'video' });
+          await dbPut(STORES.CONFIG, { key: 'hero_media_block', value: { mediaType: 'video', mediaUrl: heroUrl, heading: '', body: '' } });
+          log('Config updated via dbPut.');
+        } else {
+          const openDB = (name, version=1) => new Promise((res,rej)=>{
+            const rq = indexedDB.open(name, version);
+            rq.onsuccess = ()=>res(rq.result);
+            rq.onerror = ()=>rej(rq.error);
+            rq.onupgradeneeded = ()=>{
+              const db = rq.result;
+              if (!db.objectStoreNames.contains('config')) db.createObjectStore('config', { keyPath: 'key' });
+            };
+          });
+          const db = await openDB('PortableCatalogDB_Lazy_V1',1);
+          const tx = db.transaction('config','readwrite');
+          const s = tx.objectStore('config');
+          s.put({ key: 'welcome_background_video', value: welcomeUrl });
+          s.put({ key: 'welcome_video', value: welcomeUrl });
+          s.put({ key: 'welcome_background_type', value: 'video' });
+          s.put({ key: 'hero_media_block', value: { mediaType: 'video', mediaUrl: heroUrl, heading: '', body: '' } });
+          await new Promise((res,rej)=>{ tx.oncomplete = res; tx.onerror = rej; });
+          log('IndexedDB config updated.');
+        }
+        log('Redirecting to app...');
+        setTimeout(()=>{ location.href = './'; }, 700);
+      } catch(e){ log('Error: '+(e && e.message) || e); console.error(e); }
+    }
+
+    document.getElementById('apply').addEventListener('click', applyAndRedirect, { once:true });
+  })();
+  </script>
+</body>
+</html>
