@@ -4934,7 +4934,7 @@ python -m http.server 8080
                                 try {
                                     const basename = (url || '').split('/').pop().split('?')[0];
                                     if (basename) {
-                                        const asciiFolders = ['boloc2','boloc-2','boloc2','boloc3','boloc-3','bloc2','bloc3'];
+                                        const asciiFolders = ['boloc2','boloc2','boloc2','boloc3','boloc3','bloc2','bloc3'];
                                         const basenameNoExt = basename.replace(/\.[^.]+$/, '');
                                         for (const af of asciiFolders) {
                                             const withOrigin = window.location.origin + '/uploaded_media/' + af + '/' + basename;
@@ -5142,7 +5142,7 @@ python -m http.server 8080
                                     const candidates = [
                                         '/uploaded_media/boloc3/boloc3.mp4',
                                         '/uploaded_media/boloc3.mp4',
-                                        '/uploaded_media/boloc-3.mp4',
+                                        '/uploaded_media/boloc3.mp4',
                                         '/uploaded_media/bloc3.mp4'
                                     ];
                                     for (const c of candidates) {
@@ -5173,8 +5173,8 @@ python -m http.server 8080
                                 const tryUrls = [
                                     '/uploaded_media/boloc2/boloc2.mp4',
                                     '/uploaded_media/boloc3/boloc3.mp4',
-                                    '/uploaded_media/boloc-2.mp4',
-                                    '/uploaded_media/boloc-3.mp4',
+                                    '/uploaded_media/boloc2.mp4',
+                                    '/uploaded_media/boloc3.mp4',
                                     '/uploaded_media/bloc2.mp4',
                                     '/uploaded_media/bloc3.mp4'
                                 ];
@@ -5202,8 +5202,8 @@ python -m http.server 8080
                         try {
                             const heroUrl = (heroBlockConfig?.value && heroBlockConfig.value.mediaUrl) || (seededHero && seededHero.mediaUrl) || null;
                             const welcomeUrl = videoConfig?.value || null;
-                            const isHeroPointingTo3 = heroUrl && /bloc3\.mp4$|boloc-3\.mp4$/i.test(heroUrl);
-                            const isWelcomePointingTo2 = welcomeUrl && /bloc2\.mp4$|boloc-2\.mp4$/i.test(welcomeUrl);
+                            const isHeroPointingTo3 = heroUrl && /bloc3\.mp4$|boloc3\.mp4$/i.test(heroUrl);
+                            const isWelcomePointingTo2 = welcomeUrl && /bloc2\.mp4$|boloc2\.mp4$/i.test(welcomeUrl);
                             if (isHeroPointingTo3 && isWelcomePointingTo2) {
                                 // Preserve existing hero heading/body when fixing swap
                                 const existing = heroBlockConfig?.value || {};
@@ -5874,8 +5874,8 @@ python -m http.server 8080
                                 const candidates = [
                                     '/uploaded_media/boloc2/boloc2.mp4',
                                     '/uploaded_media/boloc3/boloc3.mp4',
-                                    '/uploaded_media/boloc-2.mp4',
-                                    '/uploaded_media/boloc-3.mp4',
+                                    '/uploaded_media/boloc2.mp4',
+                                    '/uploaded_media/boloc3.mp4',
                                     '/uploaded_media/bloc2.mp4',
                                     '/uploaded_media/bloc3.mp4'
                                 ];
@@ -5935,12 +5935,12 @@ python -m http.server 8080
                                 const commonCandidates = [
                                     'uploaded_media/bloc2.mp4', 'uploaded_media/bloc2',
                                     'uploaded_media/bloc3.mp4', 'uploaded_media/bloc3',
-                                    'uploaded_media/boloc-2.mp4', 'uploaded_media/boloc-2',
-                                    'uploaded_media/boloc-3.mp4', 'uploaded_media/boloc-3',
+                                    'uploaded_media/boloc2.mp4', 'uploaded_media/boloc2',
+                                    'uploaded_media/boloc3.mp4', 'uploaded_media/boloc3',
                                     'uploaded_media/بلوک ۲/bloc2.mp4', 'uploaded_media/بلوک ۲/bloc2',
                                     'uploaded_media/بلوک ۳/bloc3.mp4', 'uploaded_media/بلوک ۳/bloc3',
-                                    'uploaded_media/بلوک ۲/boloc-2.mp4', 'uploaded_media/بلوک ۲/boloc-2',
-                                    'uploaded_media/بلوک ۳/boloc-3.mp4', 'uploaded_media/بلوک ۳/boloc-3'
+                                    'uploaded_media/بلوک ۲/boloc2.mp4', 'uploaded_media/بلوک ۲/boloc2',
+                                    'uploaded_media/بلوک ۳/boloc3.mp4', 'uploaded_media/بلوک ۳/boloc3'
                                 ];
                                 for (const c of commonCandidates) {
                                     try {
