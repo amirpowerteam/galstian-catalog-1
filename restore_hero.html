@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="fa">
+<head>
+  <meta charset="utf-8" />
+  <title>Restore GALSTIAN Hero Text</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>body{font-family:Tahoma,Arial,Helvetica,sans-serif;padding:24px;background:#f6f6f6;color:#111}button{padding:10px 16px;margin:6px}pre{background:#fff;border:1px solid #ddd;padding:12px;white-space:pre-wrap}</style>
+</head>
+<body>
+  <h2>بازگردانی متن بلوک ۲ (Hero) به IndexedDB</h2>
+  <p>این صفحه متنِ نمونهٔ بلوک ۲ را در دیتابیس محلی برنامه می‌نویسد. اگر سرویس‌کار (Service Worker) نصب است، لطفاً بعد از عملیات آن را Unregister کنید یا صفحه را ری‌لود کنید.</p>
+  <button id="doRestore">بازگردانی متن بلوک ۲</button>
+  <button id="unregSW">Unregister Service Worker (در صورت نیاز)</button>
+  <button id="fixMedia">تنظیم آدرس ویدیوها (بلوک‌ها)</button>
+  <div id="status"></div>
+  <h3>راهنما</h3>
+  <p>اگر برنامه را با سرور محلی اجرا می‌کنید، این صفحه را در همان origin باز کنید تا IndexedDB مشترک باشد. اجرای مستقیم از فایل (file://) ممکن است کار نکند. پیشنهاد:</p>
+  <pre>npx http-server -c-1 .
+# یا
+python -m http.server 5173</pre>
+  <script>
+    // متن پشتیبان (از deploy/catalog_backup.json)
+    const backupHero = {
+      heading: "گالستیان؛ بیش از یک قرن میراث ماندگار در چیدمان",
+      body: "«زمانی که صحبت از ۱۰۸ سال تخصص به میان می‌آید، یعنی درباره‌ میراثی حرف می‌زنیم که از پسِ آزمونِ زمان سربلند بیرون آمده است. برند گالستیان با بیش از یک قرن سابقه درخشان، هنر طراحی را با دانش فنی نسل‌ها درآمیخته تا امروز کامل‌ترین تجربه شخصی‌سازی فضا را به شما ارائه دهد. ما از نخستین طرح‌ها تا مدرن‌ترین آشپزخانه‌ها و مبلمان سفارشی امروز، همواره بر یک اصل استوار بوده‌ایم: خلق آثاری که کیفیت و شکوه آن‌ها، دهه‌ها ماندگار بماند. اعتماد شما، ریشه در قدمت ما دارد.»"
+    };
+
+    const statusEl = document.getElementById('status');
+    function log(msg){ const p = document.createElement('div'); p.textContent = msg; statusEl.prepend(p); }
+
+    async function openDB(){
+      return new Promise((res, rej)=>{
+        const req = indexedDB.open('PortableCatalogDB_Lazy_V1');
+        req.onsuccess = ()=>res(req.result);
+        req.onerror = ()=>rej(req.error);
+        req.onupgradeneeded = ()=>res(req.result);
+      });
+    }
+
+    async function restoreHero(){
+      try{
+        const db = await openDB();
+        const tx = db.transaction('config','readwrite');
+        const store = tx.objectStore('config');
+        const getReq = store.get('hero_media_block');
+        getReq.onsuccess = async ()=>{
+          const cur = getReq.result ? getReq.result.value || {} : {};
+          const merged = Object.assign({}, cur, { heading: cur.heading || backupHero.heading, body: cur.body || backupHero.body });
+          try{
+            store.put({ key: 'hero_media_block', value: merged });
+            log('hero_media_block نوشته شد.');
+          }catch(e){ log('نوشتن در IndexedDB با خطا مواجه شد: ' + e); }
+        };
+        getReq.onerror = ()=>{ log('خواندن hero_media_block شکست خورد'); };
+        tx.oncomplete = ()=>{ log('تراکنش کامل شد. اکنون برنامه را ری‌لود کنید (Ctrl+F5) یا سرویس‌کار را Unregister نمایید.'); };
+      }catch(e){ log('خطا: '+e.message); }
+    }
+
+    async function unregisterSW(){
+      if (!('serviceWorker' in navigator)) { log('Service Worker در این مرورگر پشتیبانی نمی‌شود.'); return; }
+      const regs = await navigator.serviceWorker.getRegistrations();
+      if (!regs || regs.length === 0) { log('هیچ Service Worker ثبت‌شده‌ای یافت نشد.'); return; }
+      for (const r of regs) {
+        try { await r.unregister(); log('Service Worker حذف شد: ' + (r.scope || '')); } catch(e){ log('خطا در حذف Service Worker: '+e); }
+      }
+    }
+
+    async function fixMediaMapping(){
+      try{
+        const db = await openDB();
+        const tx = db.transaction('config','readwrite');
+        const store = tx.objectStore('config');
+        const getHero = store.get('hero_media_block');
+        getHero.onsuccess = ()=>{
+          const cur = getHero.result ? getHero.result.value || {} : {};
+          const merged = Object.assign({}, cur, { mediaType: 'video', mediaUrl: '/uploaded_media/boloc2/boloc2.mp4' });
+          try{ store.put({ key: 'hero_media_block', value: merged }); log('hero_media_block.mediaUrl تنظیم شد -> /uploaded_media/boloc2/boloc2.mp4'); } catch(e){ log('خطا در نوشتن hero_media_block: '+e); }
+          try{ store.put({ key: 'welcome_video', value: '/uploaded_media/boloc3/boloc3.mp4' }); log('welcome_video تنظیم شد -> /uploaded_media/boloc3/boloc3.mp4'); } catch(e){ log('خطا در نوشتن welcome_video: '+e); }
+        };
+        getHero.onerror = ()=>{ log('خواندن hero_media_block شکست خورد'); };
+        tx.oncomplete = ()=>{ log('تراکنش تنظیم ویدیوها کامل شد. صفحهٔ برنامه را ری‌لود کنید.'); };
+      }catch(e){ log('خطا: '+e.message); }
+    }
+
+    document.getElementById('doRestore').addEventListener('click', ()=>{
+      restoreHero();
+    });
+    document.getElementById('unregSW').addEventListener('click', ()=>{ unregisterSW(); });
+  </script>
+</body>
+</html>

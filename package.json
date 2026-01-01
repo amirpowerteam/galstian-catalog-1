@@ -1,0 +1,15 @@
+{
+  "name": "catalog-builder",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "serve": "node scripts/serve.js",
+    "sanitize-report": "node scripts/sanitize_report.js detailed_bug_report_2025-12-27T13-28-29-511Z.extracted\\detailed_bug_report_2025-12-27T13-28-29-511Z.json --out detailed_bug_report.sanitized.jsonl --stream --gzip",
+    "deep-scan": "node scripts/deep_scan.js detailed_bug_report_2025-12-27T13-28-29-511Z.extracted\\detailed_bug_report_2025-12-27T13-28-29-511Z.json",
+    "report-summary": "node scripts/report_summary.js detailed_bug_report_2025-12-27T13-28-29-511Z.extracted\\detailed_bug_report_2025-12-27T13-28-29-511Z.json"
+  },
+  "dependencies": {
+    "pngjs": "^7.0.0",
+    "puppeteer": "^24.34.0"
+  }
+}

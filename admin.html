@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="fa">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Admin — SW & Migration</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Arial;background:#0b1220;color:#e6eef8;padding:20px}
+    .card{background:#0f1724;padding:16px;border-radius:8px;max-width:820px;margin:12px auto}
+    button{padding:8px 10px;border-radius:6px;border:0;background:#2563eb;color:#fff;cursor:pointer}
+    input,select{padding:8px;border-radius:6px;border:1px solid #233;min-width:220px}
+    pre{background:#061122;padding:8px;border-radius:6px;overflow:auto}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>صفحهٔ مدیریت (غیرمخرب)</h2>
+    <p>این صفحه پنل مدیریت Service Worker را بارگذاری می‌کند. هیچ‌چیز به‌صورت خودکار حذف نمی‌شود — همهٔ عملیات نیاز به تأیید شما در صفحه یا اجرای فرمان در کنسول دارند.</p>
+    <div style="margin-top:12px">
+      <button id="open-admin">باز کردن پنل SW</button>
+      <span style="margin-left:8px;color:#9fb2d8">(پنل شناور ظاهر می‌شود)</span>
+    </div>
+    <div style="margin-top:12px">
+      <h4>مهاجرت تصاویر (راهنمای ایمن)</h4>
+      <p>برای مهاجرت تصاویر در IndexedDB، اسکریپت کمکی در <code>scripts/migrate_images_to_blobs.js</code> قرار دارد. برای امنیت، دکمهٔ زیر فقط یک فرمان پیشنهادی را در کنسول کپی می‌کند — خودتان آن را بررسی کرده و در کنسول پیست و اجرا کنید.</p>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="dbName" placeholder="نام DB (مثال: PortableCatalogDB_Lazy_V1)" />
+        <input id="storeName" placeholder="نام Store (مثال: products)" />
+        <button id="copy-cmd">کپی فرمان به کلیپ‌بورد</button>
+        <button id="run-migrate" style="background:#16a34a;margin-left:6px">اجرای مهاجرت امن</button>
+      </div>
+      <p style="margin-top:8px;color:#cbd8f0">بعد از کپی: DevTools → Console را باز کن و فرمان را پیست کن. اسکریپت قبل از تغییر، بکاپ می‌سازد.</p>
+      <pre id="sample" aria-hidden="true">await MigrateImages.migrate({ dbName: 'PortableCatalogDB_Lazy_V1', storeName: 'products', dataField: 'image' });</pre>
+    </div>
+    <div style="margin-top:12px;color:#9fb2d8">نکتهٔ مهم: ابتدا روی <strong>List Old Caches</strong> در پنل SW کلیک کن و خروجی را بررسی کن. عملیات حذف خودکار از داخل برنامه غیرفعال است تا از حذف تصادفی جلوگیری شود.</div>
+  </div>
+
+  <script src="/scripts/sw_admin.js"></script>
+  <script src="/scripts/migrate_images_to_blobs.js"></script>
+  <script>
+    document.getElementById('open-admin').addEventListener('click', ()=>{
+      if (typeof createSwAdmin === 'function') createSwAdmin();
+      else alert('اسکریپت پنل بارگذاری نشده است. فایل /scripts/sw_admin.js را بررسی کنید.');
+    });
+
+    document.getElementById('copy-cmd').addEventListener('click', async ()=>{
+      const db = document.getElementById('dbName').value || 'PortableCatalogDB_Lazy_V1';
+      const store = document.getElementById('storeName').value || 'products';
+      const cmd = `await MigrateImages.migrate({ dbName: '${db}', storeName: '${store}', dataField: 'image' });`;
+      try{
+        await navigator.clipboard.writeText(cmd);
+        alert('فرمان در کلیپ‌بورد کپی شد. به Console برو و پیست کن.');
+      }catch(e){
+        // fallback show in prompt
+        prompt('کپی نشد — این فرمان را دستی کپی کنید:', cmd);
+      }
+    });
+
+    document.getElementById('run-migrate').addEventListener('click', async ()=>{
+      const db = document.getElementById('dbName').value || 'PortableCatalogDB_Lazy_V1';
+      const store = document.getElementById('storeName').value || 'products';
+      if (!confirm(`آیا مطمئن هستید که می‌خواهید مهاجرت تصاویر را روی ${db}/${store} اجرا کنید؟ این عمل یک بکاپ خودکار خواهد ساخت.`)) return;
+      const btn = document.getElementById('run-migrate');
+      btn.disabled = true; btn.textContent = 'در حال اجرا...';
+      try{
+        if (typeof MigrateImages !== 'object' || typeof MigrateImages.migrate !== 'function'){
+          alert('ابزار مهاجرت بارگذاری نشده است. فایل scripts/migrate_images_to_blobs.js را بررسی کنید.');
+          return;
+        }
+        const res = await MigrateImages.migrate({ dbName: db, storeName: store, dataField: 'image' });
+        alert('مهاجرت انجام شد. processed=' + (res && res.processed) + ' failures=' + (res && res.failures && res.failures.length));
+      }catch(err){
+        alert('خطا در مهاجرت: ' + (err && err.message));
+      }finally{
+        btn.disabled = false; btn.textContent = 'اجرای مهاجرت امن';
+      }
+    });
+  </script>
+</body>
+</html>
