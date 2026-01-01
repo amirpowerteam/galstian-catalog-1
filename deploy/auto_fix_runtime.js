@@ -47,5 +47,60 @@
 
     tx.oncomplete = ()=>{ console.info('auto_fix_runtime: migration done (if any changes)'); };
     tx.onerror = (e)=>{ console.warn('auto_fix_runtime: transaction failed', e); };
+    // After config migration, attempt to fetch GitHub Release-hosted video assets
+    // and replace in-page <video> elements with blob URLs so mobile can play them.
+    (async function fetchReleaseVideos(){
+      try{
+        const keysToCheck = ['welcome_background_video','welcome_video','hero_media_block'];
+        const txn = db.transaction('config','readonly');
+        const store2 = txn.objectStore('config');
+        const results = [];
+        for (const k of keysToCheck){
+          try{
+            const req = store2.get(k);
+            await new Promise((res)=>{ req.onsuccess = req.onerror = res; });
+            const r = req.result;
+            if (!r) continue;
+            const val = r.value;
+            if (k === 'hero_media_block'){
+              const mediaUrl = val && val.mediaUrl;
+              if (mediaUrl && typeof mediaUrl === 'string') results.push({key:k, url:mediaUrl});
+            } else if (typeof val === 'string'){
+              results.push({key:k, url:val});
+            }
+          }catch(e){/* ignore single-key errors */}
+        }
+
+        const releaseMatch = (u)=> typeof u === 'string' && u.includes('/releases/download/');
+        if (!results.length) return;
+
+        window.__autoFix_releaseVideoBlobs = window.__autoFix_releaseVideoBlobs || {};
+
+        for (const item of results){
+          const url = item.url;
+          if (!releaseMatch(url)) continue;
+          try{
+            console.info('auto_fix_runtime: fetching release video', url);
+            const resp = await fetch(url, { mode: 'cors' });
+            if (!resp.ok) { console.warn('auto_fix_runtime: fetch failed', resp.status, url); continue; }
+            const blob = await resp.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            window.__autoFix_releaseVideoBlobs[url] = blobUrl;
+            // Replace any <video> elements that reference the same filename or url
+            try{
+              const filename = url.split('/').pop();
+              document.querySelectorAll('video').forEach(v=>{
+                try{
+                  const src = v.currentSrc || v.src || '';
+                  if (!src || src.includes(filename) || src === url){ v.src = blobUrl; v.setAttribute('data-auto-fix','1'); }
+                }catch(e){/* ignore per video errors */}
+              });
+            }catch(e){}
+            // Notify any consumers that a blob URL is ready
+            try{ window.dispatchEvent(new CustomEvent('autoFixRuntime:videoReady',{ detail: { original: url, blobUrl } })); }catch(e){}
+          }catch(e){ console.warn('auto_fix_runtime: error fetching release video', e); }
+        }
+      }catch(e){ console.warn('auto_fix_runtime: fetchReleaseVideos failed', e); }
+    })();
   }catch(err){ console.error('auto_fix_runtime error', err); }
 })();
