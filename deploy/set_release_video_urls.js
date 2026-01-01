@@ -14,9 +14,10 @@
 
     // Prefer existing helper if available
     if (typeof dbPut === 'function' && typeof STORES !== 'undefined'){
-      await dbPut(STORES.CONFIG, { key: 'welcome_background_video', value: welcomeUrl });
+      // Only set the welcome/welcome_video and hero media URL.
+      // Do NOT force the welcome background type to 'video' so we don't overwrite user's wallpaper preference.
       await dbPut(STORES.CONFIG, { key: 'welcome_video', value: welcomeUrl });
-      await dbPut(STORES.CONFIG, { key: 'welcome_background_type', value: 'video' });
+      await dbPut(STORES.CONFIG, { key: 'welcome_background_video', value: welcomeUrl });
       await dbPut(STORES.CONFIG, { key: 'hero_media_block', value: { mediaType: 'video', mediaUrl: heroUrl, heading: '', body: '' } });
       console.log('Config updated via dbPut. Reloading page...');
       setTimeout(()=>location.reload(), 700);
@@ -37,9 +38,9 @@
     const db = await openDB('PortableCatalogDB_Lazy_V1', 1);
     const tx = db.transaction('config', 'readwrite');
     const store = tx.objectStore('config');
-    store.put({ key: 'welcome_background_video', value: welcomeUrl });
+    // Don't change welcome_background_type here.
     store.put({ key: 'welcome_video', value: welcomeUrl });
-    store.put({ key: 'welcome_background_type', value: 'video' });
+    store.put({ key: 'welcome_background_video', value: welcomeUrl });
     store.put({ key: 'hero_media_block', value: { mediaType: 'video', mediaUrl: heroUrl, heading: '', body: '' } });
 
     tx.oncomplete = ()=>{ console.log('IndexedDB config updated. Reloading page...'); setTimeout(()=>location.reload(),700); };
