@@ -10,6 +10,12 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+
+# Ignore local release assets and uploaded media (videos kept outside git)
+release-assets-local/
+uploaded_media/
+deploy/assets/*.mp4
+
 *.local
 
 # Editor directories and files
