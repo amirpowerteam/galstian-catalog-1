@@ -6998,8 +6998,31 @@ python -m http.server 8080
 
                     console.log('Auto-import check: data missing or invalid — forcing import from', BACKUP_URL);
                     if (typeof window.importBackupFromRepo === 'function') {
-                        // Force import (silent) which clears DB and writes backup
-                        await window.importBackupFromRepo(BACKUP_URL, { silent: true });
+                        // Try several local candidate paths before falling back to the configured BACKUP_URL.
+                        const localCandidates = [
+                            './deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
+                            './deploy/catalog_backup.json',
+                            './catalog_backup.json',
+                            './deploy/catalog_backup_lazy.json'
+                        ];
+                        let found = null;
+                        for (const c of localCandidates) {
+                            try {
+                                const r = await fetch(c, { method: 'HEAD', cache: 'no-store' });
+                                if (r && r.ok) { found = c; break; }
+                            } catch (e) { /* ignore */ }
+                        }
+                        if (!found) {
+                            // as a last local attempt try GET on the most likely candidate
+                            try {
+                                const r2 = await fetch('./deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json', { cache: 'no-store' });
+                                if (r2 && r2.ok) found = './deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json';
+                            } catch (e) {}
+                        }
+
+                        const toImport = found || BACKUP_URL;
+                        console.log('Auto-import will attempt:', toImport);
+                        await window.importBackupFromRepo(toImport, { silent: true });
                         // importBackupFromRepo will reload the page after successful import
                     } else {
                         console.warn('importBackupFromRepo not available');
