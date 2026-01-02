@@ -399,7 +399,8 @@ python -m http.server 8080
                     return;
                 }
                 if ('serviceWorker' in navigator) {
-                    navigator.serviceWorker.register('./sw.js').then((reg) => {
+                    if (!(location.hostname && location.hostname.includes('github.io'))) {
+                        navigator.serviceWorker.register('./sw.js').then((reg) => {
                         console.log('ServiceWorker registered:', reg);
                         if (reg.waiting) {
                             console.log('SW waiting — consider update flow');
@@ -416,6 +417,9 @@ python -m http.server 8080
                             });
                         });
                     }).catch((err) => console.error('SW registration failed', err));
+                    } else {
+                        console.log('Skipping Service Worker registration on GitHub Pages to avoid stale cache.');
+                    }
                 }
             } catch (e) {
                 console.warn('SW registration skipped:', e);
@@ -6443,6 +6447,26 @@ python -m http.server 8080
             })();
         </script>
         <!-- `local_server_logic.js` removed per request: site already serves same-origin videos -->
+    <script>
+        // If running on github.io, proactively unregister any service workers
+        // and clear caches/localStorage keys that may hold old app state.
+        (function disableSWOnPages(){
+            try{
+                if (location.hostname && location.hostname.includes('github.io')){
+                    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations){
+                        navigator.serviceWorker.getRegistrations().then(regs=>{
+                            regs.forEach(r=>{ try{ r.unregister(); }catch(e){} });
+                        }).catch(()=>{});
+                    }
+                    if (window.caches && caches.keys){
+                        caches.keys().then(keys=>{ keys.forEach(k=>caches.delete(k)); }).catch(()=>{});
+                    }
+                    try{ localStorage.removeItem('catalog_backup_version'); localStorage.removeItem('catalog_backup_etag'); localStorage.removeItem('PRELOADED_DATA'); }catch(e){}
+                    console.info('GitHub Pages detected — cleared SW, caches and relevant localStorage keys');
+                }
+            }catch(e){ console.warn('disableSWOnPages error', e); }
+        })();
+    </script>
 </body>
 
 </html>
