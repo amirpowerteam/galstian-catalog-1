@@ -967,7 +967,49 @@ python -m http.server 8080
         </div>
     </div>
 
-    <!-- Fallback script removed per user request (keeps static root HTML only) -->
+        <!-- Automatic SW update + cache-clean script (silent, safe) -->
+        <script>
+        (function(){
+            if (!('serviceWorker' in navigator)) return;
+            try {
+                // Fetch sw.js to read CACHE_VERSION, then try to update/unregister old caches silently
+                fetch('./sw.js').then(r => { if (!r.ok) throw new Error('no sw'); return r.text(); }).then(txt => {
+                    const m = txt.match(/const\s+CACHE_VERSION\s*=\s*['\"]([^'\"]+)['\"]/);
+                    const newVer = m && m[1];
+                    if (!newVer) return;
+                    const seen = localStorage.getItem('GALSTIAN_SW_VER');
+                    if (seen === newVer) return;
+
+                    // Ask registered SWs to update and skip waiting if possible
+                    navigator.serviceWorker.getRegistrations().then(regs => {
+                        regs.forEach(reg => {
+                            try { reg.update(); } catch(e){}
+                            try {
+                                if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+                            } catch(e){}
+                        });
+                    }).catch(()=>{});
+
+                    // On controller change, reload once so clients use new SW/caches
+                    let reloaded = false;
+                    navigator.serviceWorker.addEventListener('controllerchange', () => {
+                        if (reloaded) return; reloaded = true; try { localStorage.setItem('GALSTIAN_SW_VER', newVer); } catch(e){}; window.location.reload();
+                    });
+
+                    // Remove old galstian-cache keys that don't include the new version
+                    try {
+                        caches.keys().then(keys => {
+                            keys.forEach(k => {
+                                if (typeof k === 'string' && k.indexOf('galstian-cache') === 0 && k.indexOf(newVer) === -1) {
+                                    try { caches.delete(k); } catch(e){}
+                                }
+                            });
+                        }).catch(()=>{});
+                    } catch(e) {}
+                }).catch(()=>{});
+            } catch(e) {}
+        })();
+        </script>
 
     <script type="text/babel">
         /* PRELOADED_DATA_PLACEHOLDER */
