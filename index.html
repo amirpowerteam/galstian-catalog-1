@@ -7003,11 +7003,20 @@ python -m http.server 8080
                     if (typeof window.importBackupFromRepo === 'function') {
                         // Try several local candidate paths before falling back to the configured BACKUP_URL.
                         // Check the most-likely existing filenames first to avoid 404s.
+                        // Also include absolute Pages and raw.githubusercontent fallbacks
+                        // so the app can import even when relative paths are blocked by
+                        // service workers / hosting configuration.
                         const localCandidates = [
                             './deploy/catalog_backup.json',
                             './catalog_backup.json',
                             './deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
-                            './deploy/catalog_backup_lazy.json'
+                            './deploy/catalog_backup_lazy.json',
+                            // absolute Pages URLs
+                            'https://amirpowerteam.github.io/galstian-catalog-1/deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
+                            'https://amirpowerteam.github.io/galstian-catalog-1/deploy/catalog_backup.json',
+                            // raw.githubusercontent fallbacks (branch: main)
+                            'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
+                            'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/deploy/catalog_backup.json'
                         ];
                         let found = null;
                         for (const c of localCandidates) {
