@@ -1,0 +1,15 @@
+{
+  "brands": [],
+  "categories": [],
+  "products": [
+    {
+      "id": "demo-1",
+      "sku": "DEMO-1",
+      "name": { "en": "Demo product", "fa": "محصول نمونه" },
+      "description": { "en": "Demo item to satisfy auto-import.", "fa": "آیتم نمونه برای تکمیل خودکار ایمپورت." },
+      "price": 0,
+      "active": true
+    }
+  ],
+  "config": { "app_title": "GALSTIAN Catalog (Demo)" }
+}

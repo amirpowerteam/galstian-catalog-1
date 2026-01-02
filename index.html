@@ -581,6 +581,15 @@ python -m http.server 8080
             }
 
             (async function loadXlsxWithCache() {
+                // If opened via file://, avoid loading local or CDN XLSX scripts which
+                // commonly trigger CORS/storage/tracking-prevention errors in browsers.
+                try {
+                    if (window.IS_FILE_PROTOCOL) {
+                        console.warn('Skipping XLSX load under file:// protocol');
+                        console.info('XLSX features will be unavailable when opened from file:// (use a local HTTP server)');
+                        return;
+                    }
+                } catch (e) { /* ignore */ }
                 // 1) Try inject from localStorage cache
                 const fromCache = await tryInjectFromLocalStorage();
                 if (fromCache) return;
@@ -6989,6 +6998,14 @@ python -m http.server 8080
             };
 
             document.addEventListener('DOMContentLoaded', async () => {
+                // If opened via file:// skip auto-import flow and do NOT show the loader
+                try {
+                    if (window.IS_FILE_PROTOCOL) {
+                        console.log('Skipping auto-import UI under file://');
+                        return; // do not create loader when running from file://
+                    }
+                } catch (e) { /* ignore */ }
+
                 // Show a minimal loader immediately so user sees activity
                 try {
                     let loader = document.getElementById('auto-import-loading');
@@ -7012,9 +7029,6 @@ python -m http.server 8080
                         loader.style.display = 'block';
                     }
                 } catch (e) { /* ignore UI errors */ }
-
-                try {
-                    if (window.IS_FILE_PROTOCOL) return; // skip when opened via file://
 
                     // Wait for DB helpers to be exported to window (avoid race with Babel script)
                     const waitForHelpers = (timeoutMs = 5000) => new Promise((resolve, reject) => {
@@ -7056,6 +7070,7 @@ python -m http.server 8080
                         // so the app can import even when relative paths are blocked by
                         // service workers / hosting configuration.
                         const localCandidates = [
+                            './deploy/catalog_backup_for_pages.json',
                             './deploy/catalog_backup.json',
                             './catalog_backup.json',
                             './deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
