@@ -6795,25 +6795,56 @@ python -m http.server 8080
         };
     </script>
     <script>
-        // Auto-load backup from repo on initial page load when DB is empty.
+        // Auto-load backup from repo on initial page load when DB is missing or data is invalid.
         (function() {
-            const FILENAME = 'catalog_backup_lazy_2026-01-01T18-42-54-296Z.json';
+            // Absolute URL to the hosted backup (user-provided)
+            const BACKUP_URL = 'https://amirpowerteam.github.io/galstian-catalog-1/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json';
+
+            const dataLooksValid = (products, brands, categories) => {
+                try {
+                    if (!products || !Array.isArray(products) || products.length === 0) return false;
+                    // each product should have an id; otherwise treat as invalid
+                    for (const p of products) {
+                        if (!p || !p.id) return false;
+                    }
+                    // optional: ensure referenced brand/category ids exist
+                    const brandIds = new Set((brands || []).map(b => b.id));
+                    const categoryIds = new Set((categories || []).map(c => c.id));
+                    for (const p of products) {
+                        if (p.brandId && !brandIds.has(p.brandId)) return false;
+                        if (p.categoryId && !categoryIds.has(p.categoryId)) return false;
+                    }
+                    return true;
+                } catch (e) { return false; }
+            };
+
             document.addEventListener('DOMContentLoaded', async () => {
                 try {
-                    // avoid running under file://
-                    if (window.IS_FILE_PROTOCOL) return;
-                    // ensure DB is open and check products store
-                    const products = await dbGetAll(STORES.PRODUCTS).catch(() => null);
-                    if (products && products.length > 0) {
-                        console.log('Auto-import: products already present, skipping auto import.');
+                    if (window.IS_FILE_PROTOCOL) return; // skip when opened via file://
+
+                    // Attempt to read current DB contents
+                    const [products, brands, categories] = await Promise.all([
+                        dbGetAll(STORES.PRODUCTS).catch(() => null),
+                        dbGetAll(STORES.BRANDS).catch(() => null),
+                        dbGetAll(STORES.CATEGORIES).catch(() => null),
+                    ]);
+
+                    if (dataLooksValid(products, brands, categories)) {
+                        console.log('Auto-import check: existing data appears valid — skipping forced import.');
                         return;
                     }
-                    console.log('Auto-import: no products found — attempting to import', FILENAME);
-                    // silent import (no confirm/alerts)
+
+                    console.log('Auto-import check: data missing or invalid — forcing import from', BACKUP_URL);
                     if (typeof window.importBackupFromRepo === 'function') {
-                        await window.importBackupFromRepo(FILENAME, { silent: true });
+                        // Force import (silent) which clears DB and writes backup
+                        await window.importBackupFromRepo(BACKUP_URL, { silent: true });
+                        // importBackupFromRepo will reload the page after successful import
+                    } else {
+                        console.warn('importBackupFromRepo not available');
                     }
-                } catch (e) { console.warn('Auto-import failed', e); }
+                } catch (e) {
+                    console.warn('Auto-import failed', e);
+                }
             });
         })();
     </script>
