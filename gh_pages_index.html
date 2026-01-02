@@ -12,7 +12,25 @@
                 if (origFetch) {
                     window.fetch = function(input, init) {
                         if (input == null) return Promise.reject(new TypeError('fetch called with null or undefined'));
+                        // rewrite accidental string 'null'
                         if (typeof input === 'string' && input.trim().toLowerCase() === 'null') return Promise.reject(new TypeError('fetch called with string "null"'));
+
+                        // Normalize known remote hostnames (older backups) to local relative paths so GitHub Pages subpaths work.
+                        try {
+                            let urlStr = null;
+                            if (typeof input === 'string') urlStr = input;
+                            else if (input && input.url) urlStr = input.url;
+                            if (typeof urlStr === 'string') {
+                                const u = new URL(urlStr, location.href);
+                                if (u.hostname && u.hostname.indexOf('amirpowerteam.github.io') !== -1) {
+                                    const rel = u.pathname + (u.search || '') + (u.hash || '');
+                                    const resolved = new URL(rel.replace(/^\/+/, ''), location.href).href;
+                                    if (typeof input === 'string') input = resolved;
+                                    else if (input instanceof Request) input = new Request(resolved, input);
+                                }
+                            }
+                        } catch (e) { /* ignore normalization errors */ }
+
                         return origFetch(input, init);
                     };
                 }
@@ -32,13 +50,21 @@
                             try {
                                 if (v == null) return; // ignore null/undefined
                                 if (typeof v === 'string') {
-                                    const s = v.trim();
-                                    if (!s) return;
-                                    const low = s.toLowerCase();
-                                    if (low === 'null') return; // ignore literal 'null'
-                                    if (s.indexOf('<<REDACTED') !== -1) return; // ignore scrubbed placeholders
-                                    if (s[0] === '<') return; // ignore accidental angle-bracket placeholders
-                                }
+                                        const s = v.trim();
+                                        if (!s) return;
+                                        const low = s.toLowerCase();
+                                        if (low === 'null') return; // ignore literal 'null'
+                                        if (s.indexOf('<<REDACTED') !== -1) return; // ignore scrubbed placeholders
+                                        if (s[0] === '<') return; // ignore accidental angle-bracket placeholders
+                                        // Normalize remote host references to local relative paths (older backups)
+                                        try {
+                                            const u = new URL(s, location.href);
+                                            if (u.hostname && u.hostname.indexOf('amirpowerteam.github.io') !== -1) {
+                                                const rel = u.pathname + (u.search || '') + (u.hash || '');
+                                                v = new URL(rel.replace(/^\/+/, ''), location.href).href;
+                                            }
+                                        } catch (e) { /* ignore */ }
+                                    }
                             } catch (e) { /* ignore guard errors */ }
                             return origSet.call(this, v);
                         }
@@ -149,8 +175,8 @@
 
                 const fetchText = async (p) => { try { const r = await fetch(p); if (!r.ok) return { status: r.status }; const t = await r.text(); return { status: r.status, text: t }; } catch (e) { return { error: String(e) }; } };
                 try {
-                    const idx = await fetchText('/index.html');
-                    const swf = await fetchText('/sw.js');
+                    const idx = await fetchText(new URL('index.html', location.href).href);
+                        const swf = await fetchText(new URL('sw.js', location.href).href);
                     report.files['/index.html'] = { status: idx.status || null, length: idx.text ? idx.text.length : 0, text: idx.text || null };
                     report.files['/sw.js'] = { status: swf.status || null, length: swf.text ? swf.text.length : 0, text: swf.text || null };
                     try { if (swf.text) { const m = swf.text.match(/const\s+CACHE_VERSION\s*=\s*['\"]([^'\"]+)['\"]/); if (m) report.env.swCacheVersion = m[1]; } } catch(e){}
@@ -452,7 +478,7 @@ python -m http.server 8080
                     return;
                 }
                 if ('serviceWorker' in navigator) {
-                    navigator.serviceWorker.register('/sw.js').then((reg) => {
+                    navigator.serviceWorker.register(new URL('sw.js', location.href).href).then((reg) => {
                         console.log('ServiceWorker registered:', reg);
                         if (reg.waiting) {
                             console.log('SW waiting — consider update flow');

@@ -12,7 +12,27 @@
                 if (origFetch) {
                     window.fetch = function(input, init) {
                         if (input == null) return Promise.reject(new TypeError('fetch called with null or undefined'));
+                        // rewrite accidental string 'null'
                         if (typeof input === 'string' && input.trim().toLowerCase() === 'null') return Promise.reject(new TypeError('fetch called with string "null"'));
+
+                        // Normalize known remote hostnames (older backups) to local relative paths so GitHub Pages subpaths work.
+                        try {
+                            // If input is a Request, inspect its url
+                            let urlStr = null;
+                            if (typeof input === 'string') urlStr = input;
+                            else if (input && input.url) urlStr = input.url;
+                            if (typeof urlStr === 'string') {
+                                const u = new URL(urlStr, location.href);
+                                if (u.hostname && u.hostname.indexOf('amirpowerteam.github.io') !== -1) {
+                                    // Build a URL relative to the current page folder, preserving pathname/search/hash
+                                    const rel = u.pathname + (u.search || '') + (u.hash || '');
+                                    const resolved = new URL(rel.replace(/^\/+/, ''), location.href).href;
+                                    if (typeof input === 'string') input = resolved;
+                                    else if (input instanceof Request) input = new Request(resolved, input);
+                                }
+                            }
+                        } catch (e) { /* ignore normalization errors */ }
+
                         return origFetch(input, init);
                     };
                 }
@@ -32,13 +52,21 @@
                             try {
                                 if (v == null) return; // ignore null/undefined
                                 if (typeof v === 'string') {
-                                    const s = v.trim();
-                                    if (!s) return;
-                                    const low = s.toLowerCase();
-                                    if (low === 'null') return; // ignore literal 'null'
-                                    if (s.indexOf('<<REDACTED') !== -1) return; // ignore scrubbed placeholders
-                                    if (s[0] === '<') return; // ignore accidental angle-bracket placeholders
-                                }
+                                        const s = v.trim();
+                                        if (!s) return;
+                                        const low = s.toLowerCase();
+                                        if (low === 'null') return; // ignore literal 'null'
+                                        if (s.indexOf('<<REDACTED') !== -1) return; // ignore scrubbed placeholders
+                                        if (s[0] === '<') return; // ignore accidental angle-bracket placeholders
+                                        // Normalize remote host references to local relative paths (older backups)
+                                        try {
+                                            const u = new URL(s, location.href);
+                                            if (u.hostname && u.hostname.indexOf('amirpowerteam.github.io') !== -1) {
+                                                const rel = u.pathname + (u.search || '') + (u.hash || '');
+                                                v = new URL(rel.replace(/^\/+/, ''), location.href).href;
+                                            }
+                                        } catch (e) { /* ignore */ }
+                                    }
                             } catch (e) { /* ignore guard errors */ }
                             return origSet.call(this, v);
                         }
@@ -149,8 +177,8 @@
 
                 const fetchText = async (p) => { try { const r = await fetch(p); if (!r.ok) return { status: r.status }; const t = await r.text(); return { status: r.status, text: t }; } catch (e) { return { error: String(e) }; } };
                 try {
-                    const idx = await fetchText('/index.html');
-                    const swf = await fetchText('/sw.js');
+                    const idx = await fetchText(new URL('index.html', location.href).href);
+                        const swf = await fetchText(new URL('sw.js', location.href).href);
                     report.files['/index.html'] = { status: idx.status || null, length: idx.text ? idx.text.length : 0, text: idx.text || null };
                     report.files['/sw.js'] = { status: swf.status || null, length: swf.text ? swf.text.length : 0, text: swf.text || null };
                     try { if (swf.text) { const m = swf.text.match(/const\s+CACHE_VERSION\s*=\s*['\"]([^'\"]+)['\"]/); if (m) report.env.swCacheVersion = m[1]; } } catch(e){}
@@ -445,14 +473,26 @@ python -m http.server 8080
     </script>
     <script>
         // Service Worker registration (skip on file://)
-        (function registerSW() {
+        (async function registerSW() {
             try {
                 if (window.IS_FILE_PROTOCOL) {
                     console.log('Skipping Service Worker registration under file:// protocol');
                     return;
                 }
                 if ('serviceWorker' in navigator) {
-                    navigator.serviceWorker.register('/sw.js').then((reg) => {
+                    // Check that /sw.js exists before attempting registration to avoid noisy 404s.
+                    try {
+                        const swCheck = await fetch(new URL('sw.js', location.href).href, { method: 'GET', cache: 'no-store' });
+                        if (!swCheck.ok) {
+                            console.warn('sw.js not available (status ' + swCheck.status + '), skipping Service Worker registration.');
+                            return;
+                        }
+                    } catch (e) {
+                        console.warn('Could not fetch /sw.js to verify existence — skipping Service Worker registration.', e);
+                        return;
+                    }
+
+                    navigator.serviceWorker.register(new URL('sw.js', location.href).href).then((reg) => {
                         console.log('ServiceWorker registered:', reg);
                         if (reg.waiting) {
                             console.log('SW waiting — consider update flow');
@@ -6752,6 +6792,32 @@ python -m http.server 8080
                 if (!resp.ok) throw new Error('Failed to fetch backup: ' + resp.status);
                 const json = await resp.json();
 
+                // Normalize known external hostnames used in older backups so assets resolve locally.
+                // Replace occurrences of the remote GitHub Pages host with a relative path.
+                try {
+                    const REMOTE_HOST_RE = /https?:\/\/amirpowerteam\.github\.io(\/galstian-catalog-1)?/g;
+                    const normalizeBackupUrls = (val) => {
+                        if (!val) return val;
+                        if (typeof val === 'string') return val.replace(REMOTE_HOST_RE, '');
+                        if (Array.isArray(val)) return val.map(normalizeBackupUrls);
+                        if (typeof val === 'object') {
+                            for (const k of Object.keys(val)) {
+                                try {
+                                    val[k] = normalizeBackupUrls(val[k]);
+                                } catch (e) {
+                                    // ignore individual property failures
+                                }
+                            }
+                            return val;
+                        }
+                        return val;
+                    };
+                    normalizeBackupUrls(json);
+                    console.log('Normalized remote backup URLs (amirpowerteam.github.io) to local paths where present.');
+                } catch (e) {
+                    console.warn('Failed to normalize backup URLs:', e);
+                }
+
                 // Expecting shape: { data: { brands:[], categories:[], products:[] }, config: { ... } }
                 // Some exports wrap data under `data` key
                 const root = (json && json.data) ? json.data : json;
@@ -6763,7 +6829,7 @@ python -m http.server 8080
                 // Quick validation: ensure products is an array
                 if (!Array.isArray(products)) throw new Error('Backup JSON does not contain products array at expected path.');
 
-                if (!data || (!data.brands && !data.products && !data.categories)) {
+                if (!root || (!root.brands && !root.products && !root.categories)) {
                     throw new Error('Invalid backup format.');
                 }
 
@@ -6789,14 +6855,14 @@ python -m http.server 8080
                 // Clear stores then write
                 await Promise.all(Object.values(STORES).map(s => dbClear(s)));
 
-                const brands = (data.brands || []);
-                const categories = (data.categories || []);
-                const products = (data.products || []);
+                const importBrands = (brands || []);
+                const importCategories = (categories || []);
+                const importProducts = (products || []);
 
                 await Promise.all([
-                    ...brands.map(item => dbPut(STORES.BRANDS, item)),
-                    ...categories.map(item => dbPut(STORES.CATEGORIES, item)),
-                    ...products.map(item => dbPut(STORES.PRODUCTS, item)),
+                    ...importBrands.map(item => dbPut(STORES.BRANDS, item)),
+                    ...importCategories.map(item => dbPut(STORES.CATEGORIES, item)),
+                    ...importProducts.map(item => dbPut(STORES.PRODUCTS, item)),
                     dbPut(STORES.CONFIG, { key: 'app_title', value: sanitizeValue((config && config.app_title) || null) }),
                     dbPut(STORES.CONFIG, { key: 'welcome_images', value: sanitizeValue((config && config.welcome_images) || null) }),
                     dbPut(STORES.CONFIG, { key: 'welcome_video', value: sanitizeValue((config && config.welcome_video) || null) }),
@@ -6848,8 +6914,9 @@ python -m http.server 8080
     <script>
         // Auto-load backup from repo on initial page load when DB is missing or data is invalid.
         (function() {
-            // Absolute URL to the hosted backup (user-provided)
-            const BACKUP_URL = 'https://amirpowerteam.github.io/galstian-catalog-1/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json';
+            // Default backup URL: prefer a local deploy copy when available to avoid remote 404s.
+            // If you want to force a remote import, replace this value with a full https:// URL.
+            const BACKUP_URL = 'deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json';
 
             const dataLooksValid = (products, brands, categories) => {
                 try {
