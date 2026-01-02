@@ -4,6 +4,8 @@
 <head>
     <meta charset="UTF-8" />
     <title>GALSTIAN Catalog</title>
+    <!-- Base href for GitHub Pages repo hosting to make absolute paths resolve under the repo subpath -->
+    <base href="/galstian-catalog-1/">
     <script>
         // Safety guards: ignore accidental assignments or fetch calls with null/"null".
         (function(){
@@ -175,8 +177,8 @@
 
                 const fetchText = async (p) => { try { const r = await fetch(p); if (!r.ok) return { status: r.status }; const t = await r.text(); return { status: r.status, text: t }; } catch (e) { return { error: String(e) }; } };
                 try {
-                    const idx = await fetchText(new URL('index.html', location.href).href);
-                        const swf = await fetchText(new URL('sw.js', location.href).href);
+                    const idx = await fetchText('./index.html');
+                        const swf = await fetchText('./sw.js');
                     report.files['/index.html'] = { status: idx.status || null, length: idx.text ? idx.text.length : 0, text: idx.text || null };
                     report.files['/sw.js'] = { status: swf.status || null, length: swf.text ? swf.text.length : 0, text: swf.text || null };
                     try { if (swf.text) { const m = swf.text.match(/const\s+CACHE_VERSION\s*=\s*['\"]([^'\"]+)['\"]/); if (m) report.env.swCacheVersion = m[1]; } } catch(e){}
@@ -478,7 +480,7 @@ python -m http.server 8080
                     return;
                 }
                 if ('serviceWorker' in navigator) {
-                    navigator.serviceWorker.register(new URL('sw.js', location.href).href).then((reg) => {
+                    navigator.serviceWorker.register('./sw.js').then((reg) => {
                         console.log('ServiceWorker registered:', reg);
                         if (reg.waiting) {
                             console.log('SW waiting — consider update flow');
