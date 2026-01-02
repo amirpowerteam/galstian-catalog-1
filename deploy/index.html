@@ -2,13 +2,28 @@
 <html lang="en" dir="ltr" class="dark">
 
 <head>
-    <script>
-      (function(){
-        try{
-          fetch('catalog_backup.json').then(r=>{ if(!r.ok) throw new Error('no backup'); return r.json(); }).then(d=>{ window.PRELOADED_DATA = d; console.log('PRELOADED_DATA loaded'); }).catch(()=>{ /* no preload */ });
-        }catch(e){}
-      })();
-    </script>
+        <script>
+            (function(){
+                try{
+                    // Try root `catalog_backup.json` first (used by some deployments),
+                    // fall back to `deploy/catalog_backup.json` which this repo uses.
+                    const tryLoad = async () => {
+                        const candidates = ['catalog_backup.json','deploy/catalog_backup.json'];
+                        for (const c of candidates) {
+                            try {
+                                const r = await fetch(c, { cache: 'no-store' });
+                                if (!r || !r.ok) continue;
+                                const d = await r.json();
+                                window.PRELOADED_DATA = d; console.log('PRELOADED_DATA loaded from', c);
+                                return;
+                            } catch(e) { /* try next */ }
+                        }
+                        console.log('No preload catalog found');
+                    };
+                    tryLoad();
+                }catch(e){}
+            })();
+        </script>
 
     <meta charset="UTF-8" />
     <title>GALSTIAN Catalog</title>
