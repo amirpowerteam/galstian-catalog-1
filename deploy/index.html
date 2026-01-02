@@ -895,6 +895,89 @@ python -m http.server 8080
         </div>
     </div>
 
+    <!-- Import Backup Button (manual trigger for mobile where preload may fail) -->
+    <button id="import-backup-btn" title="وارد کردن پشتیبان" style="position:fixed;right:14px;bottom:18px;z-index:9999;background:#0ea5e9;color:white;border:none;padding:10px 14px;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,0.12);font-weight:700;">وارد کردن پشتیبان</button>
+
+    <script>
+        (function(){
+            const btn = document.getElementById('import-backup-btn');
+            if (!btn) return;
+
+            const candidates = ['catalog_backup.json','deploy/catalog_backup.json'];
+
+            async function findBackupUrl(){
+                for (const c of candidates){
+                    try {
+                        const r = await fetch(c, { method: 'HEAD', cache: 'no-store' });
+                        if (r && r.ok) return c;
+                    } catch(e){ /* try next */ }
+                }
+                return null;
+            }
+
+            function openOrCreateDB(){
+                return new Promise((resolve, reject) => {
+                    const req = indexedDB.open('PortableCatalogDB_Lazy_V1', 1);
+                    req.onupgradeneeded = (ev) => {
+                        const db = ev.target.result;
+                        if (!db.objectStoreNames.contains('brands')) db.createObjectStore('brands', { keyPath: 'id' });
+                        if (!db.objectStoreNames.contains('categories')) {
+                            const s = db.createObjectStore('categories', { keyPath: 'id' });
+                            try { s.createIndex('by_brand','brandId',{unique:false}); } catch(e){}
+                        }
+                        if (!db.objectStoreNames.contains('products')) {
+                            const p = db.createObjectStore('products', { keyPath: 'id' });
+                            try { p.createIndex('by_category','categoryId',{unique:false}); p.createIndex('by_brand','brandId',{unique:false}); } catch(e){}
+                        }
+                        if (!db.objectStoreNames.contains('config')) db.createObjectStore('config', { keyPath: 'key' });
+                    };
+                    req.onsuccess = () => resolve(req.result);
+                    req.onerror = () => reject(req.error);
+                });
+            }
+
+            async function importBackup(){
+                btn.disabled = true; btn.textContent = 'در حال واردسازی...';
+                try {
+                    const url = await findBackupUrl();
+                    if (!url) { alert('فایل پشتیبان پیدا نشد.'); return; }
+                    const r = await fetch(url, { cache: 'no-store' });
+                    if (!r.ok) throw new Error('Fetch failed: ' + r.status);
+                    const backup = await r.json();
+
+                    const db = await openOrCreateDB();
+                    const tx = db.transaction(['brands','categories','products','config'], 'readwrite');
+
+                    const putIfExists = (storeName, item) => {
+                        try { tx.objectStore(storeName).put(item); } catch(e) { console.warn('put failed', storeName, e); }
+                    };
+
+                    const brands = backup.brands || backup.brands || [];
+                    const categories = backup.categories || [];
+                    const products = backup.products || [];
+                    const config = backup.config || [];
+
+                    brands.forEach(b => putIfExists('brands', b));
+                    categories.forEach(c => putIfExists('categories', c));
+                    products.forEach(p => putIfExists('products', p));
+                    config.forEach(cfg => putIfExists('config', cfg));
+
+                    await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+                    try { db.close(); } catch(e){}
+                    alert('پشتیبان با موفقیت وارد شد. صفحه دوباره بارگذاری می‌شود.');
+                    location.reload(true);
+                } catch (e) {
+                    console.error('Import backup failed', e);
+                    alert('واردسازی پشتیبان ناموفق بود: ' + (e && e.message ? e.message : String(e)));
+                } finally {
+                    btn.disabled = false; btn.textContent = 'وارد کردن پشتیبان';
+                }
+            }
+
+            btn.addEventListener('click', importBackup, { passive: true });
+        })();
+    </script>
+
     <script type="text/babel">
         /* PRELOADED_DATA_PLACEHOLDER */
         window.onload = () => {
