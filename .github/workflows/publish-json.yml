@@ -1,0 +1,39 @@
+name: Publish catalog JSON
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'deploy/**'
+  workflow_dispatch: {}
+
+jobs:
+  copy-json-to-root:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure git user
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Copy catalog JSON to repo root
+        run: |
+          set -e
+          SRC="deploy/catalog_backup.json"
+          if [ -f "$SRC" ]; then
+            cp -v "$SRC" ./catalog_backup.json
+            git add catalog_backup.json
+            if git diff --staged --quiet; then
+              echo "No changes to commit"
+            else
+              git commit -m "chore: publish catalog_backup.json from deploy/ [skip ci]"
+              git push
+            fi
+          else
+            echo "Source $SRC not found; nothing to copy"
+          fi
