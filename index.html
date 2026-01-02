@@ -6689,6 +6689,135 @@ python -m http.server 8080
         };
     </script>
     <script>
+        // Helper: Import a JSON backup file from the site root (useful when the backup is deployed alongside the app).
+        // Usage: importBackupFromRepo('catalog_backup_lazy_2026-01-01T18-42-54-296Z.json')
+        // Options: { silent: true } to skip confirm/alert (used for automatic load)
+        window.importBackupFromRepo = async function(filename, options = {}) {
+            const silent = !!options.silent;
+            try {
+                if (!filename) {
+                    if (!silent) alert('Please provide a filename to import from the site root.');
+                    return;
+                }
+                if (!silent) {
+                    if (!confirm(TRANSLATIONS.importConfirm || 'Are you sure? Importing will ERASE and REPLACE all current data with the backup.')) return;
+                }
+
+                // Basic fetch guard (skip on file://)
+                if (window.IS_FILE_PROTOCOL) {
+                    if (!silent) alert('Import from repo is not available when opening the page via file://. Serve the folder with a local server.');
+                    return;
+                }
+
+                const url = new URL(filename, window.location.href).href;
+                const resp = await fetch(url, { cache: 'no-store' });
+                if (!resp.ok) throw new Error('Failed to fetch backup: ' + resp.status);
+                const json = await resp.json();
+
+                // Expecting shape: { data: { brands:[], categories:[], products:[] }, config: { ... } }
+                const data = json.data || json;
+                const config = json.config || (json.data && json.data.config) || json.config;
+
+                if (!data || (!data.brands && !data.products && !data.categories)) {
+                    throw new Error('Invalid backup format.');
+                }
+
+                // sanitizeValue copied from the main import routine
+                const sanitizeValue = (v) => {
+                    if (v === undefined) return null;
+                    if (v === null) return null;
+                    if (typeof v === 'string') {
+                        if (/^<<REDACTED/.test(v)) return null;
+                        if (/^<<omitted-large-string:/.test(v)) return null;
+                        if ((v.length > 1000000 && !v.startsWith('data:')) || v.startsWith('file:')) return null;
+                        return v;
+                    }
+                    if (Array.isArray(v)) return v.map(sanitizeValue);
+                    if (typeof v === 'object') {
+                        const out = {};
+                        for (const k of Object.keys(v)) out[k] = sanitizeValue(v[k]);
+                        return out;
+                    }
+                    return v;
+                };
+
+                // Clear stores then write
+                await Promise.all(Object.values(STORES).map(s => dbClear(s)));
+
+                const brands = (data.brands || []);
+                const categories = (data.categories || []);
+                const products = (data.products || []);
+
+                await Promise.all([
+                    ...brands.map(item => dbPut(STORES.BRANDS, item)),
+                    ...categories.map(item => dbPut(STORES.CATEGORIES, item)),
+                    ...products.map(item => dbPut(STORES.PRODUCTS, item)),
+                    dbPut(STORES.CONFIG, { key: 'app_title', value: sanitizeValue((config && config.app_title) || null) }),
+                    dbPut(STORES.CONFIG, { key: 'welcome_images', value: sanitizeValue((config && config.welcome_images) || null) }),
+                    dbPut(STORES.CONFIG, { key: 'welcome_video', value: sanitizeValue((config && config.welcome_video) || null) }),
+                    dbPut(STORES.CONFIG, { key: 'welcome_background_type', value: sanitizeValue((config && config.welcome_background_type) || null) }),
+                    dbPut(STORES.CONFIG, { key: 'welcome_background_video', value: sanitizeValue((config && config.welcome_background_video) || null) }),
+                    dbPut(STORES.CONFIG, { key: 'hero_media_block', value: sanitizeValue((config && config.hero_media_block) || null) }),
+                    dbPut(STORES.CONFIG, { key: 'footer_info', value: sanitizeValue((config && config.footer_info) || null) }),
+                ]);
+
+                // restore embedded media if present
+                try {
+                    const embedded = (config && config._embedded_media) || (json._embedded_media) || null;
+                    if (embedded) {
+                        if (embedded.welcome_video && embedded.welcome_video.dataUrl) {
+                            await dbPut(STORES.CONFIG, { key: 'welcome_video', value: embedded.welcome_video.dataUrl });
+                        }
+                        if (embedded.welcome_background_video && embedded.welcome_background_video.dataUrl) {
+                            await dbPut(STORES.CONFIG, { key: 'welcome_background_video', value: embedded.welcome_background_video.dataUrl });
+                        }
+                        if (embedded.hero_video && embedded.hero_video.dataUrl) {
+                            const existingHero = await dbGet(STORES.CONFIG, 'hero_media_block');
+                            const heroVal = (existingHero && existingHero.value) ? existingHero.value : {};
+                            heroVal.mediaUrl = embedded.hero_video.dataUrl;
+                            if (!heroVal.mediaType) heroVal.mediaType = 'video';
+                            await dbPut(STORES.CONFIG, { key: 'hero_media_block', value: heroVal });
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Failed restoring embedded media during import-from-repo', e);
+                }
+
+                try {
+                    if (!silent) alert(TRANSLATIONS.importSuccess || 'Data imported successfully!');
+                    else console.log('importBackupFromRepo: import completed (silent)');
+                } catch (e) { console.log('Import completed'); }
+                window.location.reload();
+            } catch (err) {
+                console.error('importBackupFromRepo error', err);
+                try { if (!silent) alert(TRANSLATIONS.importError || 'Failed to import data.'); } catch (e) {}
+            }
+        };
+    </script>
+    <script>
+        // Auto-load backup from repo on initial page load when DB is empty.
+        (function() {
+            const FILENAME = 'catalog_backup_lazy_2026-01-01T18-42-54-296Z.json';
+            document.addEventListener('DOMContentLoaded', async () => {
+                try {
+                    // avoid running under file://
+                    if (window.IS_FILE_PROTOCOL) return;
+                    // ensure DB is open and check products store
+                    const products = await dbGetAll(STORES.PRODUCTS).catch(() => null);
+                    if (products && products.length > 0) {
+                        console.log('Auto-import: products already present, skipping auto import.');
+                        return;
+                    }
+                    console.log('Auto-import: no products found — attempting to import', FILENAME);
+                    // silent import (no confirm/alerts)
+                    if (typeof window.importBackupFromRepo === 'function') {
+                        await window.importBackupFromRepo(FILENAME, { silent: true });
+                    }
+                } catch (e) { console.warn('Auto-import failed', e); }
+            });
+        })();
+    </script>
+    <script>
         // Debug layout helper: enable by adding #debug-layout to the URL
         (function () {
             try {
