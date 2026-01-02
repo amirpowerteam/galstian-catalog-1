@@ -488,6 +488,13 @@ python -m http.server 8080
             }
 
             (async function loadXlsxWithCache() {
+                try {
+                    if (window.IS_FILE_PROTOCOL) {
+                        console.warn('Skipping XLSX load under file:// protocol');
+                        console.info('XLSX features will be unavailable when opened from file:// (use a local HTTP server)');
+                        return;
+                    }
+                } catch (e) { /* ignore */ }
                 // 1) Try inject from localStorage cache
                 const fromCache = await tryInjectFromLocalStorage();
                 if (fromCache) return;
