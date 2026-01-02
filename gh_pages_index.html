@@ -25,8 +25,8 @@
                             if (typeof urlStr === 'string') {
                                 const u = new URL(urlStr, location.href);
                                 if (u.hostname && u.hostname.indexOf('amirpowerteam.github.io') !== -1) {
-                                    const rel = u.pathname + (u.search || '') + (u.hash || '');
-                                    const resolved = new URL(rel.replace(/^\/+/, ''), location.href).href;
+                                    const abs = (u.pathname || '') + (u.search || '') + (u.hash || '');
+                                    const resolved = new URL(abs, location.origin).href;
                                     if (typeof input === 'string') input = resolved;
                                     else if (input instanceof Request) input = new Request(resolved, input);
                                 }
@@ -62,8 +62,8 @@
                                         try {
                                             const u = new URL(s, location.href);
                                             if (u.hostname && u.hostname.indexOf('amirpowerteam.github.io') !== -1) {
-                                                const rel = u.pathname + (u.search || '') + (u.hash || '');
-                                                v = new URL(rel.replace(/^\/+/, ''), location.href).href;
+                                                const abs = (u.pathname || '') + (u.search || '') + (u.hash || '');
+                                                v = new URL(abs, location.origin).href;
                                             }
                                         } catch (e) { /* ignore */ }
                                     }
@@ -644,7 +644,7 @@ python -m http.server 8080
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&family=Vazirmatn:wght@400;500;700;900&family=Playfair+Display:wght@700&display=swap"
         rel="stylesheet">
-    <link rel="preload" href="assets/galstian-logo.png" as="image">
+    <link rel="preload" href="./assets/galstian-logo.png" as="image">
     <!-- Inline favicon to avoid automatic /favicon.ico 404 when serving locally -->
     <link rel="icon" href="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23f1f5f9'/%3E%3Ctext x='8' y='11' font-size='9' text-anchor='middle' fill='%233b82f6' font-family='Arial'%3EG%3C/text%3E%3C/svg%3E">
 
@@ -2158,14 +2158,21 @@ python -m http.server 8080
                         // Avoid fetch on file:// — keep default logo if present in DOM or assets
                         return;
                     }
-                    fetch('assets/galstian-logo.b64').then(r => r.text()).then(b64 => {
-                        if (b64 && b64.length > 50) {
-                            const img = document.getElementById('appLogo');
-                            if (img) img.src = 'data:image/png;base64,' + b64.trim();
+                    fetch('./assets/galstian-logo.b64').then(async (r) => {
+                        try {
+                            if (!r.ok) throw new Error('galstian-logo.b64 not found: ' + r.status);
+                            const b64 = (await r.text()).trim();
+                            const base64Re = /^[A-Za-z0-9+/=\s]+$/;
+                            if (b64 && b64.length > 50 && base64Re.test(b64) && b64.indexOf('<') === -1) {
+                                const img = document.getElementById('appLogo');
+                                if (img) img.src = 'data:image/png;base64,' + b64;
+                            } else {
+                                console.warn('galstian-logo.b64 appears invalid — skipping data URI set');
+                            }
+                        } catch (e) {
+                            console.warn('Failed to load galstian-logo.b64:', e && e.message ? e.message : e);
                         }
-                    }).catch(() => {
-                        // ignore errors
-                    });
+                    }).catch(() => {});
                 }, []);
 
                 return (
@@ -2198,7 +2205,7 @@ python -m http.server 8080
                         >
                             <img
                                 id="appLogo"
-                                src="assets/galstian-logo.png"
+                                src="./assets/galstian-logo.png"
                                 alt="GALSTIAN Logo"
                                 className="h-14 sm:h-20 md:h-24 w-auto filter drop-shadow-2xl object-contain"
                                 loading="eager"
