@@ -1217,6 +1217,19 @@ python -m http.server 8080
             const dbDelete = (storeName, key) => dbAction(storeName, 'readwrite', (store) => store.delete(key));
             const dbClear = (storeName) => dbAction(storeName, 'readwrite', (store) => store.clear());
 
+            // Expose DB helpers to global scope so non-babel scripts can use them (auto-import script relies on these)
+            try {
+                window.dbGetAll = dbGetAll;
+                window.dbGet = dbGet;
+                window.dbPut = dbPut;
+                window.dbDelete = dbDelete;
+                window.dbClear = dbClear;
+                window.STORES = STORES;
+                window.openDB = openDB;
+            } catch (e) {
+                // ignore if window not writable in some runtimes
+            }
+
             // --- UTILITY HELPERS ---
             // Use a cryptographically-strong UUID when available to avoid collisions.
             const generateId = (() => {
@@ -6857,18 +6870,62 @@ python -m http.server 8080
             };
 
             document.addEventListener('DOMContentLoaded', async () => {
+                // Show a minimal loader immediately so user sees activity
+                try {
+                    let loader = document.getElementById('auto-import-loading');
+                    if (!loader) {
+                        loader = document.createElement('div');
+                        loader.id = 'auto-import-loading';
+                        loader.style.position = 'fixed';
+                        loader.style.top = '0';
+                        loader.style.left = '0';
+                        loader.style.right = '0';
+                        loader.style.padding = '10px 12px';
+                        loader.style.zIndex = '99999';
+                        loader.style.background = 'linear-gradient(90deg,#0ea5e9,#60a5fa)';
+                        loader.style.color = 'white';
+                        loader.style.fontWeight = '600';
+                        loader.style.textAlign = 'center';
+                        loader.style.fontFamily = 'Vazirmatn, Arial, sans-serif';
+                        loader.textContent = 'در حال بارگذاری... / Loading...';
+                        document.body.appendChild(loader);
+                    } else {
+                        loader.style.display = 'block';
+                    }
+                } catch (e) { /* ignore UI errors */ }
+
                 try {
                     if (window.IS_FILE_PROTOCOL) return; // skip when opened via file://
 
-                    // Attempt to read current DB contents
+                    // Wait for DB helpers to be exported to window (avoid race with Babel script)
+                    const waitForHelpers = (timeoutMs = 5000) => new Promise((resolve, reject) => {
+                        const start = Date.now();
+                        const check = () => {
+                            if (window && typeof window.dbGetAll === 'function') return resolve();
+                            if (Date.now() - start > timeoutMs) return reject(new Error('Timed out waiting for DB helpers')); 
+                            setTimeout(check, 100);
+                        };
+                        check();
+                    });
+
+                    try {
+                        await waitForHelpers(5000);
+                    } catch (e) {
+                        console.warn('Timed out waiting for DB helpers; auto-import may fail', e);
+                    }
+
+                    // Attempt to read current DB contents (use window.dbGetAll if available)
+                    const safeDbGetAll = (name) => (window.dbGetAll ? window.dbGetAll(name).catch(() => null) : Promise.resolve(null));
+
                     const [products, brands, categories] = await Promise.all([
-                        dbGetAll(STORES.PRODUCTS).catch(() => null),
-                        dbGetAll(STORES.BRANDS).catch(() => null),
-                        dbGetAll(STORES.CATEGORIES).catch(() => null),
+                        safeDbGetAll(STORES.PRODUCTS),
+                        safeDbGetAll(STORES.BRANDS),
+                        safeDbGetAll(STORES.CATEGORIES),
                     ]);
 
                     if (dataLooksValid(products, brands, categories)) {
                         console.log('Auto-import check: existing data appears valid — skipping forced import.');
+                        try { const loader = document.getElementById('auto-import-loading'); if (loader) loader.style.display = 'none'; } catch(e){}
                         return;
                     }
 
@@ -6882,6 +6939,7 @@ python -m http.server 8080
                     }
                 } catch (e) {
                     console.warn('Auto-import failed', e);
+                    try { const loader = document.getElementById('auto-import-loading'); if (loader) loader.style.display = 'none'; } catch(e){}
                 }
             });
         })();
