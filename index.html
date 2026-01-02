@@ -6709,14 +6709,46 @@ python -m http.server 8080
                     return;
                 }
 
-                const url = new URL(filename, window.location.href).href;
+                // Ensure loading indicator exists and show it
+                try {
+                    let loader = document.getElementById('auto-import-loading');
+                    if (!loader) {
+                        loader = document.createElement('div');
+                        loader.id = 'auto-import-loading';
+                        loader.style.position = 'fixed';
+                        loader.style.top = '0';
+                        loader.style.left = '0';
+                        loader.style.right = '0';
+                        loader.style.padding = '10px 12px';
+                        loader.style.zIndex = '99999';
+                        loader.style.background = 'linear-gradient(90deg,#0ea5e9,#60a5fa)';
+                        loader.style.color = 'white';
+                        loader.style.fontWeight = '600';
+                        loader.style.textAlign = 'center';
+                        loader.style.fontFamily = 'Vazirmatn, Arial, sans-serif';
+                        loader.textContent = 'در حال بارگذاری... / Loading...';
+                        document.body.appendChild(loader);
+                    } else {
+                        loader.style.display = 'block';
+                    }
+                } catch (e) { /* ignore UI errors */ }
+
+                // Use exact URL when provided; support absolute URL strings
+                const url = (typeof filename === 'string' && (filename.startsWith('http://') || filename.startsWith('https://') || filename.startsWith('//'))) ? filename : new URL(filename, window.location.href).href;
                 const resp = await fetch(url, { cache: 'no-store' });
                 if (!resp.ok) throw new Error('Failed to fetch backup: ' + resp.status);
                 const json = await resp.json();
 
                 // Expecting shape: { data: { brands:[], categories:[], products:[] }, config: { ... } }
-                const data = json.data || json;
-                const config = json.config || (json.data && json.data.config) || json.config;
+                // Some exports wrap data under `data` key
+                const root = (json && json.data) ? json.data : json;
+                const brands = root.brands || [];
+                const categories = root.categories || [];
+                const products = root.products || [];
+                const config = json.config || root.config || {};
+
+                // Quick validation: ensure products is an array
+                if (!Array.isArray(products)) throw new Error('Backup JSON does not contain products array at expected path.');
 
                 if (!data || (!data.brands && !data.products && !data.categories)) {
                     throw new Error('Invalid backup format.');
@@ -6787,9 +6819,15 @@ python -m http.server 8080
                     if (!silent) alert(TRANSLATIONS.importSuccess || 'Data imported successfully!');
                     else console.log('importBackupFromRepo: import completed (silent)');
                 } catch (e) { console.log('Import completed'); }
+                // reload to ensure render uses fresh DB
                 window.location.reload();
             } catch (err) {
+                // log error and hide loader
                 console.error('importBackupFromRepo error', err);
+                try {
+                    const loader = document.getElementById('auto-import-loading');
+                    if (loader) loader.style.display = 'none';
+                } catch (e) {}
                 try { if (!silent) alert(TRANSLATIONS.importError || 'Failed to import data.'); } catch (e) {}
             }
         };
