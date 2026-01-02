@@ -6916,7 +6916,10 @@ python -m http.server 8080
         (function() {
             // Default backup URL: prefer a local deploy copy when available to avoid remote 404s.
             // If you want to force a remote import, replace this value with a full https:// URL.
-            const BACKUP_URL = 'deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json';
+            // Prefer the canonical backup file that already exists in the `deploy` folder.
+            // If a time-stamped "lazy" backup exists on the server it will be detected
+            // by the localCandidates check below, otherwise we fall back to this file.
+            const BACKUP_URL = './deploy/catalog_backup.json';
 
             const dataLooksValid = (products, brands, categories) => {
                 try {
@@ -6999,10 +7002,11 @@ python -m http.server 8080
                     console.log('Auto-import check: data missing or invalid — forcing import from', BACKUP_URL);
                     if (typeof window.importBackupFromRepo === 'function') {
                         // Try several local candidate paths before falling back to the configured BACKUP_URL.
+                        // Check the most-likely existing filenames first to avoid 404s.
                         const localCandidates = [
-                            './deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
                             './deploy/catalog_backup.json',
                             './catalog_backup.json',
+                            './deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
                             './deploy/catalog_backup_lazy.json'
                         ];
                         let found = null;
