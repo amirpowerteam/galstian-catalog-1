@@ -5318,6 +5318,15 @@ python -m http.server 8080
 
                             localStorage.setItem('catalog_preloaded_v1', 'true');
                             setLoadingMessage(TRANSLATIONS.loading);
+
+                            // Immediately render the catalog from the preloaded backup so
+                            // the UI is not blocked by optional 'lazy' files or missing media.
+                            try {
+                                await refreshView({ type: 'brands' });
+                            } catch (e) {
+                                console.warn('Immediate refreshView failed', e);
+                            }
+                            try { setIsLoading(false); } catch(e) {}
                         }
 
                         await runMigration();
