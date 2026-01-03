@@ -1038,15 +1038,29 @@ python -m http.server 8080
                 }
 
                 let dataObj = null;
-                // Try common backup filenames first (catalog_backup.json at repo root)
+                // Primary specific backup filename to prioritize
+                const PRIMARY_BACKUP_NAME = 'catalog_backup_lazy_2026-01-01T18-42-54-296Z.json';
+                // Try a list of likely locations for the primary backup first, then common backups
                 const backupCandidates = [
+                    './' + PRIMARY_BACKUP_NAME,
+                    '/' + PRIMARY_BACKUP_NAME,
+                    'deploy/' + PRIMARY_BACKUP_NAME,
+                    './deploy/' + PRIMARY_BACKUP_NAME,
+                    'scripts/' + PRIMARY_BACKUP_NAME,
+                    './scripts/' + PRIMARY_BACKUP_NAME,
                     './catalog_backup.json',
-                    './catalog_backup_lazy_2026-01-01T18-42-54-296Z.json'
+                    './catalog_backup_lazy_2025-12-24T19-43-29-945Z.json',
+                    './backup-catalog-20251231144131.json'
                 ];
                 for (const b of backupCandidates) {
                     try {
                         dataObj = await fetchJson(b);
-                        if (dataObj) { console.info('Loaded metadata from backup', b); break; }
+                        if (dataObj) { 
+                            console.info('Loaded metadata from backup', b);
+                            try { window.PRELOADED_DATA_SOURCE = b; } catch(e){}
+                            try { window.PRELOADED_DATA_FROM_PRIMARY = (b && b.indexOf(PRIMARY_BACKUP_NAME) !== -1); } catch(e){}
+                            break; 
+                        }
                     } catch(e) { /* ignore */ }
                 }
                 if (!window.IS_FILE_PROTOCOL) {
@@ -1129,46 +1143,50 @@ python -m http.server 8080
                     window.PRELOADED_DATA = { data, config };
                     // If products are missing from the backup, try to load products from metadata.json
                     try {
-                        const prodArr = (data && data.products && Array.isArray(data.products)) ? data.products : [];
-                        if (!prodArr || prodArr.length === 0) {
-                            try {
-                                const meta = await fetchJson('./metadata.json');
-                                if (meta) {
-                                    // check common keys
-                                    if (Array.isArray(meta.products) && meta.products.length > 0) {
-                                        data.products = meta.products;
-                                        console.info('Recovered products from metadata.json -> products');
-                                    } else if (Array.isArray(meta.items) && meta.items.length > 0) {
-                                        data.products = meta.items;
-                                        console.info('Recovered products from metadata.json -> items');
-                                    } else {
-                                        // scan top-level for arrays that look like products
-                                        for (const k of Object.keys(meta)) {
-                                            try {
-                                                const v = meta[k];
-                                                if (Array.isArray(v) && v.length > 0 && typeof v[0] === 'object' && (v[0].name || v[0].description || v[0].id)) {
-                                                    data.products = v;
-                                                    console.info('Recovered products from metadata.json nested key:', k);
-                                                    break;
-                                                }
-                                            } catch (e) { /* ignore */ }
+                        if (!window.PRELOADED_DATA_FROM_PRIMARY) {
+                            const prodArr = (data && data.products && Array.isArray(data.products)) ? data.products : [];
+                            if (!prodArr || prodArr.length === 0) {
+                                try {
+                                    const meta = await fetchJson('./metadata.json');
+                                    if (meta) {
+                                        // check common keys
+                                        if (Array.isArray(meta.products) && meta.products.length > 0) {
+                                            data.products = meta.products;
+                                            console.info('Recovered products from metadata.json -> products');
+                                        } else if (Array.isArray(meta.items) && meta.items.length > 0) {
+                                            data.products = meta.items;
+                                            console.info('Recovered products from metadata.json -> items');
+                                        } else {
+                                            // scan top-level for arrays that look like products
+                                            for (const k of Object.keys(meta)) {
+                                                try {
+                                                    const v = meta[k];
+                                                    if (Array.isArray(v) && v.length > 0 && typeof v[0] === 'object' && (v[0].name || v[0].description || v[0].id)) {
+                                                        data.products = v;
+                                                        console.info('Recovered products from metadata.json nested key:', k);
+                                                        break;
+                                                    }
+                                                } catch (e) { /* ignore */ }
+                                            }
                                         }
                                     }
-                                }
-                            } catch (e) { console.warn('Failed to load metadata.json for fallback products', e); }
-                        }
+                                } catch (e) { console.warn('Failed to load metadata.json for fallback products', e); }
+                            }
 
-                        // If still empty, seed a small set of mock products so the site isn't blank
-                        const finalProducts = (data && data.products && Array.isArray(data.products)) ? data.products : [];
-                        if (!finalProducts || finalProducts.length === 0) {
-                            data.products = [
-                                { id: 'mock-1', brandId: 'brand-1', categoryId: 'cat-1-1', name: { en: 'Sample Lamp', fa: 'آباژور نمونه' }, description: { en: 'A sample lamp for testing', fa: 'یک آباژور نمونه برای تست' }, price: 12.99, currency: 'USD', images: [] },
-                                { id: 'mock-2', brandId: 'brand-1', categoryId: 'cat-1-1', name: { en: 'Sample Chair', fa: 'صندلی نمونه' }, description: { en: 'A sample chair for testing', fa: 'یک صندلی نمونه برای تست' }, price: 39.99, currency: 'USD', images: [] }
-                            ];
-                            console.info('Inserted mock products as fallback (2 items)');
+                            // If still empty, seed a small set of mock products so the site isn't blank
+                            const finalProducts = (data && data.products && Array.isArray(data.products)) ? data.products : [];
+                            if (!finalProducts || finalProducts.length === 0) {
+                                data.products = [
+                                    { id: 'mock-1', brandId: 'brand-1', categoryId: 'cat-1-1', name: { en: 'Sample Lamp', fa: 'آباژور نمونه' }, description: { en: 'A sample lamp for testing', fa: 'یک آباژور نمونه برای تست' }, price: 12.99, currency: 'USD', images: [] },
+                                    { id: 'mock-2', brandId: 'brand-1', categoryId: 'cat-1-1', name: { en: 'Sample Chair', fa: 'صندلی نمونه' }, description: { en: 'A sample chair for testing', fa: 'یک صندلی نمونه برای تست' }, price: 39.99, currency: 'USD', images: [] }
+                                ];
+                                console.info('Inserted mock products as fallback (2 items)');
+                            }
+                            // update global PRELOADED_DATA to include any recovered/mock products
+                            window.PRELOADED_DATA = { data, config };
+                        } else {
+                            console.info('Primary backup loaded; skipping metadata/mock fallback.');
                         }
-                        // update global PRELOADED_DATA to include any recovered/mock products
-                        window.PRELOADED_DATA = { data, config };
                     } catch (e) { console.warn('Fallback product recovery failed', e); }
                     try {
                         // If running on GitHub Pages, clear the 'catalog_preloaded_v1' flag
