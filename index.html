@@ -1361,6 +1361,24 @@ python -m http.server 8080
                 return false;
             })();
         })();
+
+        // Auto-promote debug mapping: if PRELOADED_DATA was found, import it
+        // into IndexedDB automatically using the existing `forceRenderFromBrands` helper.
+        // This makes the main catalog load the same data path the debug view used.
+        try {
+            if (window.PRELOADED_DATA_PROMISE && typeof window !== 'undefined') {
+                window.PRELOADED_DATA_PROMISE.then((ok) => {
+                    try {
+                        if (ok && window.PRELOADED_DATA && typeof window.forceRenderFromBrands === 'function') {
+                            console.info('Auto-importing PRELOADED_DATA into IndexedDB via forceRenderFromBrands');
+                            // Defer slightly so DB initialization and UI mount complete
+                            setTimeout(() => { try { window.forceRenderFromBrands(); } catch (e) { console.warn('auto forceRender failed', e); } }, 500);
+                        }
+                    } catch (e) { console.warn('PRELOADED_DATA auto-import handler failed', e); }
+                }).catch((e) => { /* ignore */ });
+            }
+        } catch (e) {}
+
         window.onload = () => {
             const { useState, useEffect, useCallback, useMemo, useRef } = React;
 
