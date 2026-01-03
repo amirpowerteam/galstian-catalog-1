@@ -1495,37 +1495,7 @@ python -m http.server 8080
                 getInTouch: 'Get in Touch',
             };
 
-            // Add a temporary FORCE RENDER button to the top-right corner
-            try {
-                const btn = document.createElement('button');
-                btn.id = 'force-render-btn';
-                btn.textContent = 'FORCE RENDER';
-                btn.style.position = 'fixed';
-                btn.style.top = '12px';
-                btn.style.right = '12px';
-                btn.style.zIndex = '9999';
-                btn.style.padding = '8px 12px';
-                btn.style.background = '#ef4444';
-                btn.style.color = 'white';
-                btn.style.border = 'none';
-                btn.style.borderRadius = '6px';
-                btn.style.cursor = 'pointer';
-                btn.title = 'Force import and render data.brands';
-                btn.onclick = async () => {
-                    if (window.forceRenderFromBrands) {
-                        try {
-                            // Ensure we call the brands path explicitly
-                            if (window.PRELOADED_DATA && window.PRELOADED_DATA.data && Array.isArray(window.PRELOADED_DATA.data.brands)) {
-                                await window.forceRenderFromBrands();
-                            } else {
-                                console.warn('PRELOADED_DATA.data.brands not found — attempting fallback');
-                                await window.forceRenderFromBrands();
-                            }
-                        } catch(e) { console.warn(e); }
-                    } else { console.warn('forceRenderFromBrands not available'); }
-                };
-                document.body.appendChild(btn);
-            } catch (e) { /* ignore UI injection errors */ }
+            // FORCE RENDER button removed for production
 
             // --- NEW DATABASE HELPERS (LAZY LOADING ARCHITECTURE) ---
             // CACHE BUSTER - Update this when data structure changes
@@ -5809,6 +5779,7 @@ python -m http.server 8080
 
                                 // Set UI state directly from preloaded data (lazy rendering will limit DOM cost)
                                 try { setAllBrands(brandsFromPreload); } catch (e) { console.warn('setAllBrands failed', e); }
+                                try { console.info('initializeApp: PRELOADED_DATA brands count =', Array.isArray(brandsFromPreload) ? brandsFromPreload.length : 0); } catch(e){}
                                 try { setAllCategories(categoriesFromPreload); } catch (e) { console.warn('setAllCategories failed', e); }
                                 try { setWelcomeImages(config.welcome_images || []); } catch(e){}
                                 try { setWelcomeVideo(config.welcome_video || null); } catch(e){}
