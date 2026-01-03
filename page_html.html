@@ -5284,7 +5284,7 @@ python -m http.server 8080
                             const needsHeading = !currentHero || !currentHero.heading;
                             const needsBody = !currentHero || !currentHero.body;
                             if ((needsHeading || needsBody)) {
-                                const backupCandidates = ['/deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json','/deploy/catalog_backup.json','/deploy/backup-catalog-20251231144131.json','/catalog_backup_lazy_2025-12-24T19-43-29-945Z.json'];
+                                const backupCandidates = ['./catalog_backup_lazy_2026-01-01T18-42-54-296Z.json','./catalog_backup.json','./backup-catalog-20251231144131.json','./catalog_backup_lazy_2025-12-24T19-43-29-945Z.json'];
                                 let backup = null;
                                 for (const b of backupCandidates) {
                                     try {
