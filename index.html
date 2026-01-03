@@ -1258,54 +1258,55 @@ python -m http.server 8080
                     } catch (e) { console.warn('Deep product search failed', e); }
 
                     // Force the app to use the discovered data
-                    window.PRELOADED_DATA = { data, config };
-                    // If products are missing from the backup, try to load products from metadata.json
+                    // If the backup places products under data.brands (nested structure), extract items
                     try {
-                        if (!window.PRELOADED_DATA_FROM_PRIMARY) {
-                            const prodArr = (data && data.products && Array.isArray(data.products)) ? data.products : [];
-                            if (!prodArr || prodArr.length === 0) {
-                                try {
-                                    const meta = await fetchJson('./metadata.json');
-                                    if (meta) {
-                                        // check common keys
-                                        if (Array.isArray(meta.products) && meta.products.length > 0) {
-                                            data.products = meta.products;
-                                            console.info('Recovered products from metadata.json -> products');
-                                        } else if (Array.isArray(meta.items) && meta.items.length > 0) {
-                                            data.products = meta.items;
-                                            console.info('Recovered products from metadata.json -> items');
-                                        } else {
-                                            // scan top-level for arrays that look like products
-                                            for (const k of Object.keys(meta)) {
-                                                try {
-                                                    const v = meta[k];
-                                                    if (Array.isArray(v) && v.length > 0 && typeof v[0] === 'object' && (v[0].name || v[0].description || v[0].id)) {
-                                                        data.products = v;
-                                                        console.info('Recovered products from metadata.json nested key:', k);
-                                                        break;
-                                                    }
-                                                } catch (e) { /* ignore */ }
+                        // prefer explicit data.products when present
+                        let prodArr = (data && data.products && Array.isArray(data.products)) ? data.products : [];
+                        // handle older structure: dataObj.data.brands -> collections/items
+                        try {
+                            const nested = (dataObj && dataObj.data && Array.isArray(dataObj.data.brands)) ? dataObj.data.brands : null;
+                            if ((!prodArr || prodArr.length === 0) && nested) {
+                                const extracted = [];
+                                for (const brand of nested) {
+                                    const brandId = brand.id || brand.brandId || null;
+                                    // brand may have direct items/products
+                                    if (Array.isArray(brand.items)) {
+                                        for (const it of brand.items) {
+                                            try { it.brandId = it.brandId || brandId; extracted.push(it); } catch(e){}
+                                        }
+                                    }
+                                    if (Array.isArray(brand.products)) {
+                                        for (const it of brand.products) {
+                                            try { it.brandId = it.brandId || brandId; extracted.push(it); } catch(e){}
+                                        }
+                                    }
+                                    // brand may have collections which contain items
+                                    if (Array.isArray(brand.collections)) {
+                                        for (const col of brand.collections) {
+                                            const categoryId = col.id || col.categoryId || null;
+                                            if (Array.isArray(col.items)) {
+                                                for (const it of col.items) {
+                                                    try { it.brandId = it.brandId || brandId; it.categoryId = it.categoryId || categoryId; extracted.push(it); } catch(e){}
+                                                }
+                                            }
+                                            if (Array.isArray(col.products)) {
+                                                for (const it of col.products) {
+                                                    try { it.brandId = it.brandId || brandId; it.categoryId = it.categoryId || categoryId; extracted.push(it); } catch(e){}
+                                                }
                                             }
                                         }
                                     }
-                                } catch (e) { console.warn('Failed to load metadata.json for fallback products', e); }
+                                }
+                                if (extracted.length > 0) {
+                                    data.products = extracted;
+                                    console.info('Mapped products from data.data.brands -> data.products (count):', extracted.length);
+                                }
                             }
+                        } catch (e) { console.warn('Failed extracting products from data.data.brands', e); }
 
-                            // If still empty, seed a small set of mock products so the site isn't blank
-                            const finalProducts = (data && data.products && Array.isArray(data.products)) ? data.products : [];
-                            if (!finalProducts || finalProducts.length === 0) {
-                                data.products = [
-                                    { id: 'mock-1', brandId: 'brand-1', categoryId: 'cat-1-1', name: { en: 'Sample Lamp', fa: 'آباژور نمونه' }, description: { en: 'A sample lamp for testing', fa: 'یک آباژور نمونه برای تست' }, price: 12.99, currency: 'USD', images: [] },
-                                    { id: 'mock-2', brandId: 'brand-1', categoryId: 'cat-1-1', name: { en: 'Sample Chair', fa: 'صندلی نمونه' }, description: { en: 'A sample chair for testing', fa: 'یک صندلی نمونه برای تست' }, price: 39.99, currency: 'USD', images: [] }
-                                ];
-                                console.info('Inserted mock products as fallback (2 items)');
-                            }
-                            // update global PRELOADED_DATA to include any recovered/mock products
-                            window.PRELOADED_DATA = { data, config };
-                        } else {
-                            console.info('Primary backup loaded; skipping metadata/mock fallback.');
-                        }
-                    } catch (e) { console.warn('Fallback product recovery failed', e); }
+                        // finally set PRELOADED_DATA with the discovered products
+                        window.PRELOADED_DATA = { data, config };
+                    } catch (e) { console.warn('Setting PRELOADED_DATA failed', e); }
                     try {
                         // If running on GitHub Pages, clear the 'catalog_preloaded_v1' flag
                         // to force a fresh import from the deployed backup (helpful after deploys).
