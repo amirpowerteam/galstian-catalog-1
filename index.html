@@ -993,6 +993,17 @@ python -m http.server 8080
                         welcome_background_video: dataObj.welcome_background_video || null
                     };
                     window.PRELOADED_DATA = { data, config };
+                    try {
+                        // If running on GitHub Pages, clear the 'catalog_preloaded_v1' flag
+                        // to force a fresh import from the deployed backup (helpful after deploys).
+                        const host = (location && location.hostname) ? location.hostname : '';
+                        if (host.indexOf('github.io') !== -1 || host.indexOf('amirpowerteam.github.io') !== -1) {
+                            try { localStorage.removeItem('catalog_preloaded_v1'); } catch(e){}
+                            try { localStorage.removeItem('catalog_backup_etag'); } catch(e){}
+                            try { localStorage.removeItem('catalog_backup_version'); } catch(e){}
+                            console.info('Cleared preload flags on GitHub Pages to force catalog import.');
+                        }
+                    } catch(e) {}
                     return true;
                 }
                 console.warn('No preloaded metadata found on GitHub or local files.');
