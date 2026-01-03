@@ -1127,6 +1127,22 @@ python -m http.server 8080
                         welcome_background_video: dataObj.welcome_background_video || null
                     };
                     window.PRELOADED_DATA = { data, config };
+                    // If the incoming JSON shape differs from expectations, log a concise preview
+                    try {
+                        const shapeProblems = (!dataObj || typeof dataObj !== 'object') || !Array.isArray(dataObj.products) || !Array.isArray(dataObj.brands) || !Array.isArray(dataObj.categories);
+                        if (shapeProblems) {
+                            const preview = {};
+                            if (dataObj && typeof dataObj === 'object') {
+                                for (const k of Object.keys(dataObj)) {
+                                    try {
+                                        const v = dataObj[k];
+                                        preview[k] = Array.isArray(v) ? `array(${v.length})` : typeof v;
+                                    } catch (e) { preview[k] = typeof dataObj[k]; }
+                                }
+                            }
+                            console.warn('PRELOADED_DATA received with unexpected shape. Top-level preview:', preview);
+                        }
+                    } catch (e) { console.warn('PRELOADED_DATA preview failed', e); }
                     try {
                         // If running on GitHub Pages, clear the 'catalog_preloaded_v1' flag
                         // to force a fresh import from the deployed backup (helpful after deploys).
@@ -1144,8 +1160,10 @@ python -m http.server 8080
                 return false;
             })();
         })();
-        window.onload = () => {
+        window.onload = async () => {
             const { useState, useEffect, useCallback, useMemo, useRef } = React;
+            // When true, skip optional network probes for large 'mp4' or lazy backup files
+            const SKIP_MEDIA_PROBES = true;
 
             // --- CONSTANTS ---
             // This placeholder is now only for the very first run or if DB fails.
@@ -5356,31 +5374,35 @@ python -m http.server 8080
                         ]);
                         setWelcomeImages(imagesConfig?.value || []);
                         setWelcomeVideo(videoConfig?.value || null);
-                        // If welcome video is not set, probe common uploaded_media locations (prefer nested boloc3)
-                        (async () => {
-                            try {
-                                if (!videoConfig?.value) {
-                                    const candidates = [
-                                        'uploaded_media/boloc3/boloc3.mp4',
-                                        'uploaded_media/boloc3.mp4',
-                                        'uploaded_media/boloc-3.mp4',
-                                        'uploaded_media/bloc3.mp4'
-                                    ];
-                                    for (const c of candidates) {
-                                        try {
-                                            const full = c.startsWith('http') ? c : (window.location.origin + '/' + c.replace(/^\/+/, ''));
-                                            const res = await fetch(full, { method: 'HEAD', cache: 'no-store' });
-                                            if (res && res.ok) {
-                                                setWelcomeVideo(c);
-                                                try { await dbPut(STORES.CONFIG, { key: 'welcome_video', value: c }); } catch (e) { /* ignore */ }
-                                                console.log('Seeded welcome_video with', c);
-                                                break;
-                                            }
-                                        } catch (e) { /* ignore probe errors */ }
+                        // If welcome video is not set, probe common uploaded_media locations (can be skipped)
+                        if (!SKIP_MEDIA_PROBES) {
+                            (async () => {
+                                try {
+                                    if (!videoConfig?.value) {
+                                        const candidates = [
+                                            'uploaded_media/boloc3/boloc3.mp4',
+                                            'uploaded_media/boloc3.mp4',
+                                            'uploaded_media/boloc-3.mp4',
+                                            'uploaded_media/bloc3.mp4'
+                                        ];
+                                        for (const c of candidates) {
+                                            try {
+                                                const full = c.startsWith('http') ? c : (window.location.origin + '/' + c.replace(/^\/+/, ''));
+                                                const res = await fetch(full, { method: 'HEAD', cache: 'no-store' });
+                                                if (res && res.ok) {
+                                                    setWelcomeVideo(c);
+                                                    try { await dbPut(STORES.CONFIG, { key: 'welcome_video', value: c }); } catch (e) { /* ignore */ }
+                                                    console.log('Seeded welcome_video with', c);
+                                                    break;
+                                                }
+                                            } catch (e) { /* ignore probe errors */ }
+                                        }
                                     }
-                                }
-                            } catch (e) { /* ignore */ }
-                        })();
+                                } catch (e) { /* ignore */ }
+                            })();
+                        } else {
+                            console.info('SKIP_MEDIA_PROBES enabled — skipping welcome video probes');
+                        }
                         setWelcomeBackgroundType(bgTypeConfig?.value || 'photos');
                         setWelcomeBackgroundVideo(bgVideoConfig?.value || null);
                         setFooterSettings(footerConfig?.value || null);
@@ -5388,35 +5410,39 @@ python -m http.server 8080
                         // Non-invasive: only seeds the config if hero block is empty. Tries canonical
                         // filenames first, falls back to common mistyped names present in the repo.
                         let seededHero = null;
-                        try {
-                            const existingHero = heroBlockConfig?.value || null;
-                            if (!existingHero || !existingHero.mediaUrl) {
-                                const tryUrls = [
-                                    './uploaded_media/boloc2/boloc2.mp4',
-                                    './uploaded_media/boloc3/boloc3.mp4',
-                                    './uploaded_media/boloc-2.mp4',
-                                    './uploaded_media/boloc-3.mp4',
-                                    './uploaded_media/bloc2.mp4',
-                                    './uploaded_media/bloc3.mp4'
-                                ];
-                                let found = null;
-                                for (const u of tryUrls) {
-                                    try {
-                                        const res = await fetch(u, { method: 'HEAD' });
-                                        if (res && res.ok) { found = u; break; }
-                                    } catch (e) {
-                                        // ignore network errors for probing
+                        if (!SKIP_MEDIA_PROBES) {
+                            try {
+                                const existingHero = heroBlockConfig?.value || null;
+                                if (!existingHero || !existingHero.mediaUrl) {
+                                    const tryUrls = [
+                                        './uploaded_media/boloc2/boloc2.mp4',
+                                        './uploaded_media/boloc3/boloc3.mp4',
+                                        './uploaded_media/boloc-2.mp4',
+                                        './uploaded_media/boloc-3.mp4',
+                                        './uploaded_media/bloc2.mp4',
+                                        './uploaded_media/bloc3.mp4'
+                                    ];
+                                    let found = null;
+                                    for (const u of tryUrls) {
+                                        try {
+                                            const res = await fetch(u, { method: 'HEAD' });
+                                            if (res && res.ok) { found = u; break; }
+                                        } catch (e) {
+                                            // ignore network errors for probing
+                                        }
+                                    }
+                                    if (found) {
+                                        // Preserve any existing heading/body when seeding the mediaUrl
+                                        const existing = existingHero || {};
+                                        seededHero = Object.assign({}, existing, { mediaType: 'video', mediaUrl: found });
+                                        try { await dbPut(STORES.CONFIG, { key: 'hero_media_block', value: seededHero }); } catch (e) { console.warn('Failed to write seeded hero_media_block', e); }
                                     }
                                 }
-                                if (found) {
-                                    // Preserve any existing heading/body when seeding the mediaUrl
-                                    const existing = existingHero || {};
-                                    seededHero = Object.assign({}, existing, { mediaType: 'video', mediaUrl: found });
-                                    try { await dbPut(STORES.CONFIG, { key: 'hero_media_block', value: seededHero }); } catch (e) { console.warn('Failed to write seeded hero_media_block', e); }
-                                }
+                            } catch (e) {
+                                console.warn('Hero seed probe failed', e);
                             }
-                        } catch (e) {
-                            console.warn('Hero seed probe failed', e);
+                        } else {
+                            console.info('SKIP_MEDIA_PROBES enabled — skipping hero media probes');
                         }
                         setHeroMediaBlock(heroBlockConfig?.value || seededHero || null);
                         // If hero and welcome videos are swapped in the DB, fix them:
@@ -5446,33 +5472,37 @@ python -m http.server 8080
                             const needsHeading = !currentHero || !currentHero.heading;
                             const needsBody = !currentHero || !currentHero.body;
                             if ((needsHeading || needsBody)) {
-                                const backupCandidates = [
-                                    './catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
-                                    './catalog_backup.json',
-                                    './backup-catalog-20251231144131.json',
-                                    './catalog_backup_lazy_2025-12-24T19-43-29-945Z.json',
-                                    // Fallback to raw.githubusercontent in case Pages doesn't expose deploy/ files
-                                    'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
-                                    'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/deploy/catalog_backup.json',
-                                    'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/deploy/backup-catalog-20251231144131.json',
-                                    'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/catalog_backup_lazy_2025-12-24T19-43-29-945Z.json'
-                                ];
-                                let backup = null;
-                                for (const b of backupCandidates) {
-                                    try {
-                                        const r = await fetch(b);
-                                        if (r && r.ok) { backup = await r.json(); break; }
-                                    } catch (e) { /* ignore */ }
-                                }
-                                if (backup && backup.hero_media_block) {
-                                    const from = backup.hero_media_block;
-                                    const merged = Object.assign({}, currentHero || {}, {
-                                        heading: currentHero?.heading || from.heading || null,
-                                        body: currentHero?.body || from.body || null
-                                    });
-                                    try { await dbPut(STORES.CONFIG, { key: 'hero_media_block', value: merged }); } catch (e) { console.warn('Failed writing restored hero text', e); }
-                                    setHeroMediaBlock(merged);
-                                    console.log('Restored hero heading/body from local backup');
+                                if (!SKIP_MEDIA_PROBES) {
+                                    const backupCandidates = [
+                                        './catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
+                                        './catalog_backup.json',
+                                        './backup-catalog-20251231144131.json',
+                                        './catalog_backup_lazy_2025-12-24T19-43-29-945Z.json',
+                                        // Fallback to raw.githubusercontent in case Pages doesn't expose deploy/ files
+                                        'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
+                                        'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/deploy/catalog_backup.json',
+                                        'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/deploy/backup-catalog-20251231144131.json',
+                                        'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/catalog_backup_lazy_2025-12-24T19-43-29-945Z.json'
+                                    ];
+                                    let backup = null;
+                                    for (const b of backupCandidates) {
+                                        try {
+                                            const r = await fetch(b);
+                                            if (r && r.ok) { backup = await r.json(); break; }
+                                        } catch (e) { /* ignore */ }
+                                    }
+                                    if (backup && backup.hero_media_block) {
+                                        const from = backup.hero_media_block;
+                                        const merged = Object.assign({}, currentHero || {}, {
+                                            heading: currentHero?.heading || from.heading || null,
+                                            body: currentHero?.body || from.body || null
+                                        });
+                                        try { await dbPut(STORES.CONFIG, { key: 'hero_media_block', value: merged }); } catch (e) { console.warn('Failed writing restored hero text', e); }
+                                        setHeroMediaBlock(merged);
+                                        console.log('Restored hero heading/body from local backup');
+                                    }
+                                } else {
+                                    console.info('SKIP_MEDIA_PROBES enabled — skipping backup probes for hero text restore');
                                 }
                             }
                         } catch (e) {
@@ -5480,6 +5510,31 @@ python -m http.server 8080
                         }
 
                         await refreshView({ type: 'brands' });
+                        try {
+                            const postProducts = await dbGetAll(STORES.PRODUCTS);
+                            if (!postProducts || postProducts.length === 0) {
+                                console.warn('Initialization complete but product list is empty. Showing on-screen debug indicator.');
+                                try {
+                                    const existing = document.getElementById('debug-empty-products');
+                                    if (!existing) {
+                                        const el = document.createElement('div');
+                                        el.id = 'debug-empty-products';
+                                        el.style.position = 'fixed';
+                                        el.style.right = '12px';
+                                        el.style.top = '12px';
+                                        el.style.zIndex = 99999;
+                                        el.style.padding = '10px 14px';
+                                        el.style.background = 'rgba(220,38,38,0.95)';
+                                        el.style.color = 'white';
+                                        el.style.borderRadius = '6px';
+                                        el.style.fontFamily = 'sans-serif';
+                                        el.style.fontSize = '14px';
+                                        el.innerText = 'Debug: product list empty after loading';
+                                        document.body.appendChild(el);
+                                    }
+                                } catch (ee) { console.warn('Failed to inject debug UI', ee); }
+                            }
+                        } catch (e) { console.warn('Failed to inspect products after init', e); }
 
                     } catch (error) {
                         console.error("Initialization Error:", error);
@@ -6896,6 +6951,15 @@ python -m http.server 8080
             console.log('%cDB Name:', 'color: lightblue;', DB_NAME);
 
             // Debug helper removed — no floating debug button in production.
+            // If the preloaded data is still being fetched, wait for it to avoid a mount without the backup.
+            if (window.PRELOADED_DATA_PROMISE) {
+                try {
+                    await window.PRELOADED_DATA_PROMISE;
+                    console.info('PRELOADED_DATA_PROMISE resolved before mounting React.');
+                } catch (e) {
+                    console.warn('PRELOADED_DATA_PROMISE failed before mount', e);
+                }
+            }
 
             ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 
