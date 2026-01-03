@@ -1273,7 +1273,75 @@ python -m http.server 8080
                             }
                         } catch (e) { console.warn('Failed extracting products from brands', e); }
 
-                        // finally set PRELOADED_DATA with the discovered products
+                        // Additional fallback: attempt to map arrays by shape if brands/products are still empty
+                        try {
+                            const hasBrands = Array.isArray(data.brands) && data.brands.length > 0;
+                            const hasProducts = Array.isArray(data.products) && data.products.length > 0;
+
+                            const findArrayByProps = (root, requiredProps = [], minLen = 6) => {
+                                try {
+                                    const seen = new WeakSet();
+                                    const stack = [{ node: root, path: 'root' }];
+                                    while (stack.length) {
+                                        const { node, path } = stack.pop();
+                                        if (!node || typeof node !== 'object') continue;
+                                        if (seen.has(node)) continue;
+                                        seen.add(node);
+                                        if (Array.isArray(node) && node.length >= minLen) {
+                                            // sample first few elements
+                                            let matchCount = 0;
+                                            for (let i = 0; i < Math.min(node.length, 8); i++) {
+                                                const it = node[i];
+                                                if (it && typeof it === 'object') {
+                                                    let ok = true;
+                                                    for (const p of requiredProps) {
+                                                        if (!(p in it)) { ok = false; break; }
+                                                    }
+                                                    if (ok) matchCount++;
+                                                }
+                                            }
+                                            if (matchCount >= 1) return { array: node, path };
+                                        }
+                                        if (Array.isArray(node)) {
+                                            for (let i = 0; i < node.length; i++) stack.push({ node: node[i], path: path + '[' + i + ']' });
+                                        } else {
+                                            for (const k of Object.keys(node)) {
+                                                try { stack.push({ node: node[k], path: path + '.' + k }); } catch(e){}
+                                            }
+                                        }
+                                    }
+                                } catch (e) { /* ignore */ }
+                                return null;
+                            };
+
+                            if (!hasBrands) {
+                                // try find arrays of objects that look like brands (have name or logo)
+                                const brandCandidates = [ ['name','logo'], ['name','items'], ['name'] ];
+                                for (const props of brandCandidates) {
+                                    const found = findArrayByProps(dataObj, props, 4);
+                                    if (found && Array.isArray(found.array) && found.array.length) {
+                                        data.brands = found.array;
+                                        console.info('Fallback-mapped data.brands from path', found.path, 'length', found.array.length);
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (!hasProducts) {
+                                // try find arrays that look like products (have brandId or categoryId)
+                                const prodCandidates = [ ['brandId','categoryId'], ['brandId'], ['categoryId'], ['image','name'] ];
+                                for (const props of prodCandidates) {
+                                    const found = findArrayByProps(dataObj, props, 4);
+                                    if (found && Array.isArray(found.array) && found.array.length) {
+                                        data.products = found.array;
+                                        console.info('Fallback-mapped data.products from path', found.path, 'length', found.array.length);
+                                        break;
+                                    }
+                                }
+                            }
+                        } catch (e) { console.warn('Fallback mapping error', e); }
+
+                        // finally set PRELOADED_DATA with the discovered products/brands
                         window.PRELOADED_DATA = { data, config };
                     } catch (e) { console.warn('Setting PRELOADED_DATA failed', e); }
                     try {
