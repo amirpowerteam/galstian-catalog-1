@@ -352,7 +352,16 @@
                 } catch (e) { console.warn('tryRender error', e); }
             };
 
-            // Run asap
+            // Run asap and also listen for PRELOADED_DATA_PROMISE resolution
+            try { console.log('Debug: PRELOADED_DATA present?', !!window.PRELOADED_DATA, 'PRELOADED_DATA_PROMISE present?', !!window.PRELOADED_DATA_PROMISE); } catch(e){}
+            if (window.PRELOADED_DATA_PROMISE && typeof window.PRELOADED_DATA_PROMISE.then === 'function') {
+                try {
+                    window.PRELOADED_DATA_PROMISE.then(() => {
+                        try { console.log('Debug: PRELOADED_DATA_PROMISE resolved'); } catch(e){}
+                        tryRender();
+                    }).catch((err) => { console.warn('Debug: PRELOADED_DATA_PROMISE rejected', err); tryRender(); });
+                } catch(e) { console.warn('Debug: attaching PRELOADED_DATA_PROMISE handler failed', e); }
+            }
             if (document.readyState === 'complete' || document.readyState === 'interactive') tryRender(); else window.addEventListener('DOMContentLoaded', tryRender);
         })();
     </script>
