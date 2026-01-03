@@ -5550,32 +5550,88 @@ python -m http.server 8080
                                 setAllCategories(categoriesWithImages);
                             }
                         } else if (newView.type === 'categories') {
-                            const [categories, products] = await Promise.all([
-                                dbGetByIndex(STORES.CATEGORIES, 'by_brand', newView.brandId),
-                                dbGetByIndex(STORES.PRODUCTS, 'by_brand', newView.brandId)
-                            ]);
+                            // Prefer PRELOADED_DATA when available
+                            if (window.PRELOADED_DATA && window.PRELOADED_DATA.data) {
+                                const data = window.PRELOADED_DATA.data;
+                                const allCategories = Array.isArray(data.categories) ? data.categories : [];
+                                const allProducts = Array.isArray(data.products) ? data.products : [];
+                                // categories for this brand
+                                const categories = allCategories.filter(c => c.brandId === newView.brandId);
+                                // fallback: derive categories from products if categories missing
+                                if (categories.length === 0) {
+                                    const catsFromProducts = allProducts.filter(p => p.brandId === newView.brandId && p.categoryId).map(p => p.categoryId);
+                                    const uniqueCatIds = Array.from(new Set(catsFromProducts));
+                                    for (const cid of uniqueCatIds) {
+                                        const found = allCategories.find(c => c.id === cid);
+                                        if (found) categories.push(found);
+                                    }
+                                }
 
-                            newItems = categories.map(cat => ({
-                                ...cat,
-                                productImages: products
-                                    .filter(p => p.categoryId === cat.id && p.images && p.images.length > 0)
-                                    .slice(0, 4)
-                                    .map(p => p.images[0])
-                            }));
-                            const brand = await dbGet(STORES.BRANDS, newView.brandId);
-                            if (brand) newBreadcrumbs.push({ type: 'brand', id: brand.id, name: brand.name });
-                        } else if (newView.type === 'products') {
-                            newItems = await dbGetByIndex(STORES.PRODUCTS, 'by_category', newView.categoryId);
-                            // Ensure products are shown in insertion order when possible
-                            if (Array.isArray(newItems)) {
-                                newItems.sort((a, b) => (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0));
+                                newItems = categories.map(cat => ({
+                                    ...cat,
+                                    productImages: allProducts
+                                        .filter(p => p.categoryId === cat.id && p.images && p.images.length > 0)
+                                        .slice(0, 4)
+                                        .map(p => p.images[0])
+                                }));
+                                const brand = (Array.isArray(data.brands) ? data.brands.find(b => b.id === newView.brandId) : null);
+                                if (brand) newBreadcrumbs.push({ type: 'brand', id: brand.id, name: brand.name });
+                            } else {
+                                const [categories, products] = await Promise.all([
+                                    dbGetByIndex(STORES.CATEGORIES, 'by_brand', newView.brandId),
+                                    dbGetByIndex(STORES.PRODUCTS, 'by_brand', newView.brandId)
+                                ]);
+
+                                newItems = categories.map(cat => ({
+                                    ...cat,
+                                    productImages: products
+                                        .filter(p => p.categoryId === cat.id && p.images && p.images.length > 0)
+                                        .slice(0, 4)
+                                        .map(p => p.images[0])
+                                }));
+                                const brand = await dbGet(STORES.BRANDS, newView.brandId);
+                                if (brand) newBreadcrumbs.push({ type: 'brand', id: brand.id, name: brand.name });
                             }
-                            const brand = await dbGet(STORES.BRANDS, newView.brandId);
-                            const category = await dbGet(STORES.CATEGORIES, newView.categoryId);
-                            if (brand) newBreadcrumbs.push({ type: 'brand', id: brand.id, name: brand.name });
-                            if (category) newBreadcrumbs.push({ type: 'category', id: category.id, name: category.name, context: { brandId: brand.id } });
+                        } else if (newView.type === 'products') {
+                            if (window.PRELOADED_DATA && window.PRELOADED_DATA.data) {
+                                const data = window.PRELOADED_DATA.data;
+                                const allProducts = Array.isArray(data.products) ? data.products : [];
+                                newItems = allProducts.filter(p => p.categoryId === newView.categoryId);
+                                // Ensure order
+                                if (Array.isArray(newItems)) newItems.sort((a,b) => (Number(a.createdAt)||0) - (Number(b.createdAt)||0));
+                                const brand = (Array.isArray(data.brands) ? data.brands.find(b => b.id === newView.brandId) : null);
+                                const category = (Array.isArray(data.categories) ? data.categories.find(c => c.id === newView.categoryId) : null);
+                                if (brand) newBreadcrumbs.push({ type: 'brand', id: brand.id, name: brand.name });
+                                if (category) newBreadcrumbs.push({ type: 'category', id: category.id, name: category.name, context: { brandId: brand.id } });
+                            } else {
+                                newItems = await dbGetByIndex(STORES.PRODUCTS, 'by_category', newView.categoryId);
+                                // Ensure products are shown in insertion order when possible
+                                if (Array.isArray(newItems)) {
+                                    newItems.sort((a, b) => (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0));
+                                }
+                                const brand = await dbGet(STORES.BRANDS, newView.brandId);
+                                const category = await dbGet(STORES.CATEGORIES, newView.categoryId);
+                                if (brand) newBreadcrumbs.push({ type: 'brand', id: brand.id, name: brand.name });
+                                if (category) newBreadcrumbs.push({ type: 'category', id: category.id, name: category.name, context: { brandId: brand.id } });
+                            }
                         } else if (newView.type === 'productDetail') {
-                            let product = await dbGet(STORES.PRODUCTS, newView.productId);
+                            let product = null;
+                            if (window.PRELOADED_DATA && window.PRELOADED_DATA.data) {
+                                const data = window.PRELOADED_DATA.data;
+                                product = (Array.isArray(data.products) ? data.products.find(p => p.id === newView.productId) : null) || null;
+                                if (!product) {
+                                    // try to recover from brands collections
+                                    const brands = Array.isArray(data.brands) ? data.brands : [];
+                                    for (const b of brands) {
+                                        if (Array.isArray(b.items)) {
+                                            const found = b.items.find(it => it.id === newView.productId || it.id === (newView.productId || ''));
+                                            if (found) { product = found; break; }
+                                        }
+                                    }
+                                }
+                            } else {
+                                product = await dbGet(STORES.PRODUCTS, newView.productId);
+                            }
                             // Conservative cleanup for single product view: only clean Persian name
                             if (product) {
                                 try {
