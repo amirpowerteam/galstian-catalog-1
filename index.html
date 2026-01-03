@@ -954,6 +954,14 @@ python -m http.server 8080
                 }
 
                 let dataObj = null;
+                // Try common backup filenames first (catalog_backup.json at repo root or deploy folder)
+                const backupCandidates = ['catalog_backup.json','deploy/catalog_backup.json','deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json'];
+                for (const b of backupCandidates) {
+                    try {
+                        dataObj = await fetchJson(b);
+                        if (dataObj) { console.info('Loaded metadata from backup', b); break; }
+                    } catch(e) { /* ignore */ }
+                }
                 if (!window.IS_FILE_PROTOCOL) {
                     for (const u of tryUrls) {
                         dataObj = await fetchJson(u);
