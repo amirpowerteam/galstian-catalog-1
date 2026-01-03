@@ -5481,7 +5481,6 @@ python -m http.server 8080
                             const needsHeading = !currentHero || !currentHero.heading;
                             const needsBody = !currentHero || !currentHero.body;
                             if ((needsHeading || needsBody)) {
-                                if (!SKIP_MEDIA_PROBES) {
                                     const backupCandidates = [
                                         './catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
                                         './catalog_backup.json',
@@ -5510,7 +5509,6 @@ python -m http.server 8080
                                         setHeroMediaBlock(merged);
                                         console.log('Restored hero heading/body from local backup');
                                     }
-                            }
                         } catch (e) {
                             console.warn('Hero restore from backup failed', e);
                         }
