@@ -1701,107 +1701,97 @@ python -m http.server 8080
             window.forceRenderFromBrands = async function() {
                 try {
                     if (!window.PRELOADED_DATA) { console.warn('forceRender: no PRELOADED_DATA'); return; }
-                    const src = (window.PRELOADED_DATA.data && typeof window.PRELOADED_DATA.data === 'object') ? window.PRELOADED_DATA.data : window.PRELOADED_DATA;
+                    // DATA PATH: use window.PRELOADED_DATA.data.brands as primary source
+                    const srcRoot = (window.PRELOADED_DATA.data && typeof window.PRELOADED_DATA.data === 'object') ? window.PRELOADED_DATA.data : window.PRELOADED_DATA;
+                    let brands = Array.isArray(srcRoot.brands) ? srcRoot.brands : [];
+                    const categories = Array.isArray(srcRoot.categories) ? srcRoot.categories : [];
 
-                    // local recursive finder for large arrays (used for big files)
-                    const recursiveFindLargeArrayLocal = (root, minLen = 6) => {
+                    // helper to ensure name is an object and prefer name.en
+                    const normalizeNameObject = (item) => {
+                        if (!item) return item;
                         try {
-                            const seen = new WeakSet();
-                            const stack = [{ node: root, path: 'root' }];
-                            while (stack.length) {
-                                const { node, path } = stack.pop();
-                                if (!node || typeof node !== 'object') continue;
-                                if (seen.has(node)) continue;
-                                seen.add(node);
-                                if (Array.isArray(node) && node.length >= minLen) {
-                                    let objCount = 0;
-                                    for (let i = 0; i < Math.min(node.length, 10); i++) if (node[i] && typeof node[i] === 'object') objCount++;
-                                    if (objCount > 0) return { array: node, path };
-                                }
-                                if (Array.isArray(node)) {
-                                    for (let i = 0; i < node.length; i++) stack.push({ node: node[i], path: path + '[' + i + ']' });
-                                } else {
-                                    for (const k of Object.keys(node)) stack.push({ node: node[k], path: path + '.' + k });
-                                }
+                            if (typeof item.name === 'string') {
+                                item.name = { en: item.name };
+                            } else if (!item.name) {
+                                item.name = { en: item.title || '' };
                             }
-                        } catch (e) { console.warn('recursiveFindLargeArrayLocal error', e); }
-                        return null;
+                        } catch (e) {}
+                        return item;
                     };
 
-                    // attempt to determine brands & categories arrays
-                    let brands = Array.isArray(src.brands) ? src.brands : (Array.isArray(window.PRELOADED_DATA.brands) ? window.PRELOADED_DATA.brands : []);
-                    let categories = Array.isArray(src.categories) ? src.categories : (Array.isArray(window.PRELOADED_DATA.categories) ? window.PRELOADED_DATA.categories : []);
-
-                    // if brands empty, attempt to find a large array that may be brands
-                    if ((!brands || brands.length === 0)) {
-                        const found = recursiveFindLargeArrayLocal(src, 6) || recursiveFindLargeArrayLocal(window.PRELOADED_DATA, 6);
-                        if (found && Array.isArray(found.array) && found.array.length > 0) {
-                            // Heuristic: if first element has 'logo' or 'brand' or 'name' as object, treat as brands
-                            const sample = found.array[0];
-                            const isBrandLike = sample && typeof sample === 'object' && (sample.logo || (sample.name && typeof sample.name === 'object') || sample.brandId === undefined);
-                            if (isBrandLike) {
-                                brands = found.array;
-                                console.info('forceRender: detected brands array at', found.path, 'count:', brands.length);
-                            } else {
-                                // treat as products array fallback
-                                const productsFallback = found.array;
-                                console.info('forceRender: detected products array at', found.path, 'count:', productsFallback.length);
-                                // write directly to PRODUCTS and return
-                                await Promise.all([dbClear(STORES.PRODUCTS)]);
-                                const normalized = productsFallback.map(p => {
-                                    try {
-                                        if (typeof p.name === 'string') p.name = { en: p.name };
-                                        else if (!p.name) p.name = { en: p.title || '' };
-                                    } catch(e) {}
-                                    return p;
-                                });
-                                if (normalized.length) await Promise.all(normalized.map(p => dbPut(STORES.PRODUCTS, p)));
-                                console.info('forceRender: imported productsFallback count', normalized.length);
-                                try { window.location.reload(); } catch(e){}
-                                return;
-                            }
+                    // helper to fix base64 images: ensure data:image/*;base64, prefix
+                    const fixBase64Image = (s) => {
+                        if (!s || typeof s !== 'string') return s;
+                        const trimmed = s.trim();
+                        if (trimmed.startsWith('data:')) return trimmed;
+                        // common base64 starts: /9j/ (jpg) or iVBOR (png) or R0lGOD (gif)
+                        if (/^(?:\/9j\/|iVBOR|R0lGOD)/.test(trimmed)) {
+                            if (trimmed.startsWith('/9j/')) return 'data:image/jpeg;base64,' + trimmed;
+                            if (trimmed.startsWith('iVBOR')) return 'data:image/png;base64,' + trimmed;
+                            return 'data:image/png;base64,' + trimmed;
                         }
-                    }
+                        return trimmed;
+                    };
+
+                    // If brands empty, try top-level PRELOADED_DATA.brands fallback
+                    if ((!brands || brands.length === 0) && Array.isArray(window.PRELOADED_DATA.brands)) brands = window.PRELOADED_DATA.brands;
 
                     const productsFromBrands = [];
+                    // FORCE RENDER FIX: loop through data.brands and extract collections and items
                     for (const brand of (brands || [])) {
-                        const brandId = brand.id || brand.brandId || null;
-                        // normalize brand name if string
-                        try { if (brand && typeof brand.name === 'string') brand.name = { en: brand.name }; } catch(e){}
-                        // direct items/products
-                        if (Array.isArray(brand.items)) {
-                            for (const it of brand.items) { try { if (typeof it.name === 'string') it.name = { en: it.name }; it.brandId = it.brandId || brandId; productsFromBrands.push(it); } catch(e){} }
-                        }
-                        if (Array.isArray(brand.products)) {
-                            for (const it of brand.products) { try { if (typeof it.name === 'string') it.name = { en: it.name }; it.brandId = it.brandId || brandId; productsFromBrands.push(it); } catch(e){} }
-                        }
-                        if (Array.isArray(brand.collections)) {
-                            for (const col of brand.collections) {
-                                const categoryId = col.id || col.categoryId || null;
-                                if (Array.isArray(col.items)) {
-                                    for (const it of col.items) { try { if (typeof it.name === 'string') it.name = { en: it.name }; it.brandId = it.brandId || brandId; it.categoryId = it.categoryId || categoryId; productsFromBrands.push(it); } catch(e){} }
-                                }
-                                if (Array.isArray(col.products)) {
-                                    for (const it of col.products) { try { if (typeof it.name === 'string') it.name = { en: it.name }; it.brandId = it.brandId || brandId; it.categoryId = it.categoryId || categoryId; productsFromBrands.push(it); } catch(e){} }
+                        try {
+                            normalizeNameObject(brand);
+                            const brandId = brand.id || brand.brandId || null;
+                            if (brand.logo && typeof brand.logo === 'string') brand.logo = fixBase64Image(brand.logo);
+
+                            // direct items
+                            if (Array.isArray(brand.items)) {
+                                for (const it of brand.items) {
+                                    try { normalizeNameObject(it); it.brandId = it.brandId || brandId; if (it.image && typeof it.image === 'string') it.image = fixBase64Image(it.image); productsFromBrands.push(it); } catch(e){}
                                 }
                             }
-                        }
+                            // direct products
+                            if (Array.isArray(brand.products)) {
+                                for (const it of brand.products) {
+                                    try { normalizeNameObject(it); it.brandId = it.brandId || brandId; if (it.image && typeof it.image === 'string') it.image = fixBase64Image(it.image); productsFromBrands.push(it); } catch(e){}
+                                }
+                            }
+                            // collections -> items/products
+                            if (Array.isArray(brand.collections)) {
+                                for (const col of brand.collections) {
+                                    const categoryId = col.id || col.categoryId || null;
+                                    if (Array.isArray(col.items)) {
+                                        for (const it of col.items) {
+                                            try { normalizeNameObject(it); it.brandId = it.brandId || brandId; it.categoryId = it.categoryId || categoryId; if (it.image && typeof it.image === 'string') it.image = fixBase64Image(it.image); productsFromBrands.push(it); } catch(e){}
+                                        }
+                                    }
+                                    if (Array.isArray(col.products)) {
+                                        for (const it of col.products) {
+                                            try { normalizeNameObject(it); it.brandId = it.brandId || brandId; it.categoryId = it.categoryId || categoryId; if (it.image && typeof it.image === 'string') it.image = fixBase64Image(it.image); productsFromBrands.push(it); } catch(e){}
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (e) { console.warn('forceRender: brand loop error', e); }
                     }
 
-                    // write to DB
+                    // write to DB (clear then insert)
                     await Promise.all([dbClear(STORES.BRANDS), dbClear(STORES.CATEGORIES), dbClear(STORES.PRODUCTS), dbClear(STORES.CONFIG)]);
-                    if (brands.length) await Promise.all(brands.map(b => dbPut(STORES.BRANDS, b)));
-                    if (categories.length) await Promise.all(categories.map(c => dbPut(STORES.CATEGORIES, c)));
-                    if (productsFromBrands.length) await Promise.all(productsFromBrands.map(p => dbPut(STORES.PRODUCTS, p)));
+                    if (brands.length) {
+                        await Promise.all(brands.map(b => { try { normalizeNameObject(b); if (b.logo && typeof b.logo === 'string') b.logo = fixBase64Image(b.logo); } catch(e){} return dbPut(STORES.BRANDS, b); }));
+                    }
+                    if (categories.length) await Promise.all(categories.map(c => { try { normalizeNameObject(c); } catch(e){} return dbPut(STORES.CATEGORIES, c); }));
+                    if (productsFromBrands.length) await Promise.all(productsFromBrands.map(p => { try { normalizeNameObject(p); } catch(e){} return dbPut(STORES.PRODUCTS, p); }));
+
                     // persist config if present
-                    if (src.config) {
+                    if (srcRoot.config) {
                         try {
-                            await dbPut(STORES.CONFIG, { key: 'app_title', value: src.config.app_title || '' });
-                            await dbPut(STORES.CONFIG, { key: 'welcome_images', value: src.config.welcome_images || [] });
-                            await dbPut(STORES.CONFIG, { key: 'welcome_video', value: src.config.welcome_video || null });
+                            await dbPut(STORES.CONFIG, { key: 'app_title', value: srcRoot.config.app_title || '' });
+                            await dbPut(STORES.CONFIG, { key: 'welcome_images', value: srcRoot.config.welcome_images || [] });
+                            await dbPut(STORES.CONFIG, { key: 'welcome_video', value: srcRoot.config.welcome_video || null });
                         } catch(e) { console.warn('forceRender: failed writing config', e); }
                     }
-                    console.info('forceRender: imported brands/products into IndexedDB (counts)', brands.length, productsFromBrands.length);
+                    console.info('forceRender: imported brands/products into IndexedDB (brands,products)', (brands||[]).length, productsFromBrands.length);
                     // Reload to let React re-read the DB and render
                     try { window.location.reload(); } catch(e) { console.warn('forceRender reload failed', e); }
                 } catch (err) { console.warn('forceRenderFromBrands error', err); }
