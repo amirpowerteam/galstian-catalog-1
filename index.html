@@ -1073,7 +1073,7 @@ python -m http.server 8080
                 if (dataObj) {
                     // Normalize absolute repo-root media paths (e.g. '/uploaded_media/...')
                     // to relative paths so they resolve correctly under GitHub Pages
-                    const normalizePaths = (obj) => {
+                    const normalizePathsDeep = (obj) => {
                         if (!obj || typeof obj !== 'object') return;
                         const walk = (value) => {
                             if (Array.isArray(value)) {
@@ -1116,7 +1116,7 @@ python -m http.server 8080
                         walk(obj);
                     };
 
-                    try { normalizePaths(dataObj); } catch(e) { console.warn('normalizePaths failed', e); }
+                    try { normalizePathsDeep(dataObj); } catch(e) { console.warn('normalizePathsDeep failed', e); }
 
                     // print a short preview of the raw JSON so we can inspect structure
                     try {
