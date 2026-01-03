@@ -1370,9 +1370,19 @@ python -m http.server 8080
                 window.PRELOADED_DATA_PROMISE.then((ok) => {
                     try {
                         if (ok && window.PRELOADED_DATA && typeof window.forceRenderFromBrands === 'function') {
-                            console.info('Auto-importing PRELOADED_DATA into IndexedDB via forceRenderFromBrands');
-                            // Defer slightly so DB initialization and UI mount complete
-                            setTimeout(() => { try { window.forceRenderFromBrands(); } catch (e) { console.warn('auto forceRender failed', e); } }, 500);
+                            try {
+                                const FLAG = 'catalog_auto_import_done_v1';
+                                const already = localStorage.getItem(FLAG);
+                                if (already) {
+                                    console.info('Skipping auto-import:', FLAG, 'present');
+                                } else {
+                                    console.info('Auto-importing PRELOADED_DATA into IndexedDB via forceRenderFromBrands');
+                                    // mark as done to avoid reload loops
+                                    try { localStorage.setItem(FLAG, String(Date.now())); } catch(e) { console.warn('Could not set auto-import flag', e); }
+                                    // Defer slightly so DB initialization and UI mount complete
+                                    setTimeout(() => { try { window.forceRenderFromBrands(); } catch (e) { console.warn('auto forceRender failed', e); } }, 500);
+                                }
+                            } catch(e) { console.warn('auto-import flag check failed', e); }
                         }
                     } catch (e) { console.warn('PRELOADED_DATA auto-import handler failed', e); }
                 }).catch((e) => { /* ignore */ });
