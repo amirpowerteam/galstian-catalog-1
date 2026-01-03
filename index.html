@@ -2854,15 +2854,66 @@ python -m http.server 8080
                     }
                 }, [brands, selectedBrand]);
 
+                // When first few brands are available, remove any initial loading UI and debug panel
+                useEffect(() => {
+                    try {
+                        const checkAndHide = () => {
+                            const src = Array.isArray(brands) && brands.length ? brands : (window.PRELOADED_DATA && window.PRELOADED_DATA.data && window.PRELOADED_DATA.data.brands) || [];
+                            if (!src || src.length === 0) return;
+                            // If at least 5 items exist, remove loading overlay and debug panel
+                            if (src.length >= 5 || visibleBrands.length >= 5) {
+                                try {
+                                    // Remove legacy loading node inside #root if present
+                                    const root = document.getElementById('root');
+                                    if (root) {
+                                        const firstChild = root.firstElementChild;
+                                        if (firstChild && firstChild.textContent && firstChild.textContent.indexOf('Loading Catalog') !== -1) {
+                                            firstChild.remove();
+                                        }
+                                    }
+                                } catch (e) {}
+                                try {
+                                    const dbg = document.getElementById('debug-brands-panel');
+                                    if (dbg && dbg.parentNode) dbg.parentNode.removeChild(dbg);
+                                } catch (e) {}
+                            }
+                        };
+                        checkAndHide();
+                    } catch (e) { /* ignore */ }
+                }, [brands, visibleBrands]);
+
                 const filteredCategories = useMemo(() => {
                     if (!selectedBrandId) return [];
                     return categories.filter(c => c.brandId === selectedBrandId);
                 }, [categories, selectedBrandId]);
 
+                const getBrandImageSrc = (b) => {
+                    if (!b) return null;
+                    let src = null;
+                    try { if (b && typeof b.logo === 'string') src = b.logo; } catch(e){}
+                    try { if (!src && b && typeof b.image === 'string') src = b.image; } catch(e){}
+                    try { if (!src && b && Array.isArray(b.items) && b.items[0] && typeof b.items[0].image === 'string') src = b.items[0].image; } catch(e){}
+                    if (!src) return null;
+                    const s = src.trim();
+                    if (s.startsWith('data:')) return s;
+                    // detect base64 without data: prefix (common in backups)
+                    if (/^(?:[A-Za-z0-9+/]{100,}={0,2})$/.test(s) || /^(?:\/9j\/|iVBOR|R0lGOD)/.test(s)) {
+                        return 'data:image/png;base64,' + s;
+                    }
+                    return s;
+                };
+
                 const handleBrandClick = async (brandId) => {
                     setSelectedBrandId(brandId);
-                    const brandData = await dbGet(STORES.BRANDS, brandId);
-                    setSelectedBrand(brandData);
+                    try {
+                        // Prefer in-memory brands prop (sourced from PRELOADED_DATA)
+                        const source = Array.isArray(brands) && brands.length ? brands : (window.PRELOADED_DATA && window.PRELOADED_DATA.data && window.PRELOADED_DATA.data.brands) || [];
+                        const brandData = source.find(b => b.id === brandId) || null;
+                        setSelectedBrand(brandData);
+                    } catch (e) {
+                        console.warn('handleBrandClick error', e);
+                        setSelectedBrand(null);
+                    }
                     setTimeout(() => {
                         brandInfoRef.current?.scrollIntoView({
                             behavior: 'smooth',
@@ -2916,13 +2967,15 @@ python -m http.server 8080
                                                 onClick={() => handleBrandClick(brand.id)}
                                                 className={`group relative aspect-square transition-all duration-300 cursor-pointer rounded-lg overflow-hidden shadow-xl dark:shadow-[0_15px_30px_rgba(0,0,0,0.6)] hover:shadow-2xl dark:hover:shadow-[0_20px_40px_rgba(59,130,246,0.5)] ring-2 ${selectedBrandId === brand.id ? 'ring-blue-500 scale-105' : 'ring-transparent opacity-80 hover:opacity-100 hover:scale-105 hover:shadow-blue-500/40'}`}
                                             >
-                                                <div className="absolute inset-0 bg-white dark:bg-slate-800 flex items-center justify-center p-4">
-                                                    {brand.logo ? (
-                                                        <img loading="lazy" src={brand.logo} alt={getLocalizedTitle(brand.name, 'en')} className="max-w-full max-h-full object-contain transition-transform duration-300 group-hover:scale-105" />
-                                                    ) : (
-                                                        <BuildingStorefrontIcon className="w-1/2 h-1/2 text-slate-400 dark:text-slate-500 transition-transform duration-300 group-hover:scale-105" />
-                                                    )}
-                                                </div>
+                                                                <div className="absolute inset-0 bg-white dark:bg-slate-800 flex items-center justify-center p-4">
+                                                                    {(() => {
+                                                                        const imgSrc = getBrandImageSrc(brand);
+                                                                        if (imgSrc) {
+                                                                            return (<img loading="lazy" src={imgSrc} alt={getLocalizedTitle(brand.name, 'en')} className="max-w-full max-h-full object-contain transition-transform duration-300 group-hover:scale-105" />);
+                                                                        }
+                                                                        return (<BuildingStorefrontIcon className="w-1/2 h-1/2 text-slate-400 dark:text-slate-500 transition-transform duration-300 group-hover:scale-105" />);
+                                                                    })()}
+                                                                </div>
                                                 <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent">
                                                     <h3 className="text-sm font-bold text-white text-center truncate">
                                                         {getLocalizedTitle(brand.name, 'en', TRANSLATIONS.untitled)}
