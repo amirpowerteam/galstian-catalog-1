@@ -1011,6 +1011,35 @@ python -m http.server 8080
                     try{
                         const res = await fetch(url, { cache: 'no-store' });
                         if (!res.ok) throw new Error('status ' + res.status);
+                        // If this looks like the main backup file, show a quick alert with the first 100 chars
+                        try {
+                            const isBackup = /catalog_backup/i.test((url||'').toString());
+                            if (isBackup) {
+                                // read a text preview safely by cloning the response
+                                try {
+                                    const txt = await res.clone().text();
+                                    try { window.alert('Backup preview:\n' + txt.slice(0,100)); } catch(e) { console.info('Alert suppressed', e); }
+                                    // Inspect keys presence
+                                    try {
+                                        const parsed = JSON.parse(txt);
+                                        const hasProducts = Object.prototype.hasOwnProperty.call(parsed, 'products');
+                                        const hasItems = Object.prototype.hasOwnProperty.call(parsed, 'items');
+                                        const hasBrands = Object.prototype.hasOwnProperty.call(parsed, 'brands');
+                                        const found = [];
+                                        if (hasProducts) found.push('products');
+                                        if (hasItems) found.push('items');
+                                        if (hasBrands) found.push('brands');
+                                        if (found.length) {
+                                            try { window.alert('Backup contains keys: ' + found.join(', ')); } catch(e) { console.info('Alert suppressed', e); }
+                                        }
+                                    } catch (e) {
+                                        // not valid JSON, but we already alerted the preview
+                                    }
+                                } catch (e) {
+                                    console.warn('Failed to read backup preview', e);
+                                }
+                            }
+                        } catch (e) { /* ignore */ }
                         return await res.json();
                     }catch(e){
                         console.warn('fetchJson failed', url, e);
@@ -1127,6 +1156,38 @@ python -m http.server 8080
                         welcome_background_video: dataObj.welcome_background_video || null
                     };
                     window.PRELOADED_DATA = { data, config };
+                    // If the backup contained no products but loaded successfully,
+                    // show a temporary debug list on the page with the top-level keys.
+                    try {
+                        const productCount = (data && data.products && Array.isArray(data.products)) ? data.products.length : 0;
+                        if (productCount === 0) {
+                            const keys = Object.keys(dataObj || {}).map(k => {
+                                try { const v = dataObj[k]; return `${k}: ${Array.isArray(v) ? ('array(' + v.length + ')') : typeof v}`; } catch (e) { return String(k); }
+                            }).join('\n');
+                            try {
+                                const existing = document.getElementById('debug-json-keys');
+                                if (!existing) {
+                                    const el = document.createElement('pre');
+                                    el.id = 'debug-json-keys';
+                                    el.style.position = 'fixed';
+                                    el.style.left = '12px';
+                                    el.style.top = '12px';
+                                    el.style.zIndex = 999999;
+                                    el.style.background = 'rgba(0,0,0,0.75)';
+                                    el.style.color = 'white';
+                                    el.style.padding = '12px';
+                                    el.style.borderRadius = '6px';
+                                    el.style.maxWidth = 'calc(100% - 32px)';
+                                    el.style.maxHeight = '60vh';
+                                    el.style.overflow = 'auto';
+                                    el.style.fontSize = '12px';
+                                    el.innerText = 'DEBUG LIST (top-level keys and types)\n\n' + keys;
+                                    document.body.appendChild(el);
+                                    setTimeout(() => { try { el.remove(); } catch(e){} }, 30000);
+                                }
+                            } catch (e) { console.warn('Failed to render debug JSON keys on page', e); }
+                        }
+                    } catch(e) { /* ignore debug rendering errors */ }
                     try {
                         // If running on GitHub Pages, clear the 'catalog_preloaded_v1' flag
                         // to force a fresh import from the deployed backup (helpful after deploys).
