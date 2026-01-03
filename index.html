@@ -354,6 +354,27 @@
 
             // Run asap and also listen for PRELOADED_DATA_PROMISE resolution
             try { console.log('Debug: PRELOADED_DATA present?', !!window.PRELOADED_DATA, 'PRELOADED_DATA_PROMISE present?', !!window.PRELOADED_DATA_PROMISE); } catch(e){}
+            // If PRELOADED_DATA isn't set, attempt a direct fetch of './data.json' for troubleshooting
+            if (!window.PRELOADED_DATA && !window.PRELOADED_DATA_PROMISE) {
+                (async function(){
+                    try {
+                        console.log('Debug: attempting direct fetch ./data.json for troubleshooting');
+                        const res = await fetch('./data.json', { cache: 'no-store' });
+                        if (res && res.ok) {
+                            try {
+                                const parsed = await res.json();
+                                // If file already has {data,config} use it, otherwise set as data
+                                if (parsed && parsed.data) window.PRELOADED_DATA = parsed;
+                                else window.PRELOADED_DATA = { data: parsed, config: (parsed && parsed.config) ? parsed.config : {} };
+                                console.log('Debug: loaded ./data.json into PRELOADED_DATA (direct fetch)');
+                                tryRender();
+                            } catch (e) { console.warn('Debug: parsing ./data.json failed', e); }
+                        } else {
+                            console.warn('Debug: direct fetch ./data.json failed', res && res.status);
+                        }
+                    } catch (e) { console.warn('Debug: direct fetch ./data.json error', e); }
+                })();
+            }
             if (window.PRELOADED_DATA_PROMISE && typeof window.PRELOADED_DATA_PROMISE.then === 'function') {
                 try {
                     window.PRELOADED_DATA_PROMISE.then(() => {
