@@ -1118,71 +1118,48 @@ python -m http.server 8080
 
                     try { normalizePathsDeep(dataObj); } catch(e) { console.warn('normalizePathsDeep failed', e); }
 
-                    // print a short preview of the raw JSON so we can inspect structure
+                    // For large files avoid printing full contents — attempt to fetch size via HEAD
                     try {
                         const previewSrc = (window.PRELOADED_DATA_SOURCE && typeof window.PRELOADED_DATA_SOURCE === 'string') ? window.PRELOADED_DATA_SOURCE : './data.json';
                         try {
-                            const resp = await fetch(previewSrc, { cache: 'no-store' });
-                            if (resp && resp.ok) {
-                                const text = await resp.text();
-                                console.log('DATA_PREVIEW:', text.slice(0, 300));
-                            }
+                            const head = await fetch(previewSrc, { method: 'HEAD', cache: 'no-store' });
+                            const len = head && head.ok ? head.headers.get('content-length') : null;
+                            if (len) console.log('DATA_PREVIEW: content-length=', len);
                         } catch (e) {
-                            // fall back to trying data.json specifically
-                            try {
-                                const r2 = await fetch('./data.json', { cache: 'no-store' });
-                                if (r2 && r2.ok) {
-                                    const t2 = await r2.text();
-                                    console.log('DATA_PREVIEW (fallback):', t2.slice(0, 300));
-                                }
-                            } catch (e2) { /* ignore preview errors */ }
+                            // HEAD may be blocked; skip heavy preview to avoid memory pressure
+                            console.log('DATA_PREVIEW: (size unavailable, skipping large body preview)');
                         }
                     } catch(e) { /* ignore */ }
 
                     // Deep-search for arrays that look like product lists
-                    const looksLikeProduct = (obj) => {
-                        if (!obj || typeof obj !== 'object') return false;
-                        const keys = Object.keys(obj).map(k => k.toLowerCase());
-                        if (keys.includes('price') || keys.includes('cost') || keys.includes('amount')) return true;
-                        if (keys.includes('name') || keys.includes('title')) return true;
-                        if (keys.includes('image') || keys.includes('images') || keys.includes('photo') || keys.includes('photos')) return true;
-                        return false;
-                    };
-
-                    const findProductArray = (root) => {
-                        const seen = new WeakSet();
-                        const walker = (node) => {
-                            if (!node || typeof node !== 'object') return null;
-                            if (seen.has(node)) return null;
-                            seen.add(node);
-                            if (Array.isArray(node)) {
-                                if (node.length > 0) {
-                                    // sample first few items
-                                    for (let i = 0; i < Math.min(node.length, 5); i++) {
-                                        try {
-                                            if (looksLikeProduct(node[i])) return node;
-                                        } catch (e) {}
+                    // Recursive/iterative finder: locate first array with length >= minLen (default 6)
+                    const recursiveFindLargeArray = (root, minLen = 6) => {
+                        try {
+                            const seen = new WeakSet();
+                            const stack = [{ node: root, path: 'root' }];
+                            while (stack.length) {
+                                const { node, path } = stack.pop();
+                                if (!node || typeof node !== 'object') continue;
+                                if (seen.has(node)) continue;
+                                seen.add(node);
+                                if (Array.isArray(node) && node.length >= minLen) {
+                                    // ensure it's an array of objects (at least one sample)
+                                    let objCount = 0;
+                                    for (let i = 0; i < Math.min(node.length, 10); i++) {
+                                        if (node[i] && typeof node[i] === 'object') objCount++;
+                                    }
+                                    if (objCount > 0) return { array: node, path };
+                                }
+                                if (Array.isArray(node)) {
+                                    for (let i = 0; i < node.length; i++) stack.push({ node: node[i], path: path + '[' + i + ']' });
+                                } else {
+                                    for (const k of Object.keys(node)) {
+                                        try { stack.push({ node: node[k], path: path + '.' + k }); } catch (e) {}
                                     }
                                 }
-                                // search inside array elements
-                                for (const el of node) {
-                                    const found = walker(el);
-                                    if (found) return found;
-                                }
-                                return null;
                             }
-                            // object: iterate properties
-                            for (const k in node) {
-                                if (!Object.prototype.hasOwnProperty.call(node, k)) continue;
-                                try {
-                                    const val = node[k];
-                                    const found = walker(val);
-                                    if (found) return found;
-                                } catch (e) {}
-                            }
-                            return null;
-                        };
-                        return walker(root);
+                        } catch (e) { console.warn('recursiveFindLargeArray error', e); }
+                        return null;
                     };
 
                     // Normalize absolute repo-root media paths (e.g. '/uploaded_media/...')
@@ -1243,66 +1220,55 @@ python -m http.server 8080
                         welcome_background_video: dataObj.welcome_background_video || null
                     };
 
-                    // If products look empty, perform a deep search for product-like arrays
+                    // If products look empty, perform a deep search for any large arrays
                     try {
                         const prodArr = (data && data.products && Array.isArray(data.products)) ? data.products : [];
                         if (!prodArr || prodArr.length === 0) {
-                            const found = findProductArray(dataObj);
-                            if (found && Array.isArray(found) && found.length > 0) {
-                                data.products = found;
-                                console.info('Deep-recovered products array (mapped to data.products) - length:', found.length);
+                            const found = recursiveFindLargeArray(dataObj, 6);
+                            if (found && Array.isArray(found.array) && found.array.length > 0) {
+                                data.products = found.array;
+                                console.info('Deep-recovered large array mapped to data.products - path:', found.path, 'length:', found.array.length);
                             } else {
-                                console.info('Deep search did not find an obvious products array');
+                                console.info('Deep search did not find any large arrays');
                             }
                         }
-                    } catch (e) { console.warn('Deep product search failed', e); }
+                    } catch (e) { console.warn('Deep large-array search failed', e); }
 
                     // Force the app to use the discovered data
                     // If the backup places products under data.brands (nested structure), extract items
                     try {
                         // prefer explicit data.products when present
                         let prodArr = (data && data.products && Array.isArray(data.products)) ? data.products : [];
-                        // handle older structure: dataObj.data.brands -> collections/items
+                        // handle older/nested structure: favor mapping brands from dataObj.data.brands or dataObj.brands
                         try {
-                            const nested = (dataObj && dataObj.data && Array.isArray(dataObj.data.brands)) ? dataObj.data.brands : null;
-                            if ((!prodArr || prodArr.length === 0) && nested) {
+                            const brandsSource = (dataObj && dataObj.data && Array.isArray(dataObj.data.brands)) ? dataObj.data.brands : (Array.isArray(dataObj.brands) ? dataObj.brands : (Array.isArray(data.brands) ? data.brands : []));
+                            if (brandsSource && brandsSource.length > 0) {
+                                // ensure data.brands is populated for later DB import
+                                data.brands = brandsSource;
+                            }
+
+                            // If still no products, try to extract items/products from brands collections
+                            const prodArrNow = (data && data.products && Array.isArray(data.products)) ? data.products : [];
+                            if ((!prodArrNow || prodArrNow.length === 0) && Array.isArray(data.brands) && data.brands.length > 0) {
                                 const extracted = [];
-                                for (const brand of nested) {
+                                for (const brand of data.brands) {
                                     const brandId = brand.id || brand.brandId || null;
-                                    // brand may have direct items/products
-                                    if (Array.isArray(brand.items)) {
-                                        for (const it of brand.items) {
-                                            try { it.brandId = it.brandId || brandId; extracted.push(it); } catch(e){}
-                                        }
-                                    }
-                                    if (Array.isArray(brand.products)) {
-                                        for (const it of brand.products) {
-                                            try { it.brandId = it.brandId || brandId; extracted.push(it); } catch(e){}
-                                        }
-                                    }
-                                    // brand may have collections which contain items
+                                    if (Array.isArray(brand.items)) for (const it of brand.items) { try { it.brandId = it.brandId || brandId; if (typeof it.name === 'string') it.name = { en: it.name }; extracted.push(it); } catch(e){} }
+                                    if (Array.isArray(brand.products)) for (const it of brand.products) { try { it.brandId = it.brandId || brandId; if (typeof it.name === 'string') it.name = { en: it.name }; extracted.push(it); } catch(e){} }
                                     if (Array.isArray(brand.collections)) {
                                         for (const col of brand.collections) {
                                             const categoryId = col.id || col.categoryId || null;
-                                            if (Array.isArray(col.items)) {
-                                                for (const it of col.items) {
-                                                    try { it.brandId = it.brandId || brandId; it.categoryId = it.categoryId || categoryId; extracted.push(it); } catch(e){}
-                                                }
-                                            }
-                                            if (Array.isArray(col.products)) {
-                                                for (const it of col.products) {
-                                                    try { it.brandId = it.brandId || brandId; it.categoryId = it.categoryId || categoryId; extracted.push(it); } catch(e){}
-                                                }
-                                            }
+                                            if (Array.isArray(col.items)) for (const it of col.items) { try { it.brandId = it.brandId || brandId; it.categoryId = it.categoryId || categoryId; if (typeof it.name === 'string') it.name = { en: it.name }; extracted.push(it); } catch(e){} }
+                                            if (Array.isArray(col.products)) for (const it of col.products) { try { it.brandId = it.brandId || brandId; it.categoryId = it.categoryId || categoryId; if (typeof it.name === 'string') it.name = { en: it.name }; extracted.push(it); } catch(e){} }
                                         }
                                     }
                                 }
                                 if (extracted.length > 0) {
                                     data.products = extracted;
-                                    console.info('Mapped products from data.data.brands -> data.products (count):', extracted.length);
+                                    console.info('Mapped products from brands -> data.products (count):', extracted.length);
                                 }
                             }
-                        } catch (e) { console.warn('Failed extracting products from data.data.brands', e); }
+                        } catch (e) { console.warn('Failed extracting products from brands', e); }
 
                         // finally set PRELOADED_DATA with the discovered products
                         window.PRELOADED_DATA = { data, config };
@@ -1736,26 +1702,87 @@ python -m http.server 8080
                 try {
                     if (!window.PRELOADED_DATA) { console.warn('forceRender: no PRELOADED_DATA'); return; }
                     const src = (window.PRELOADED_DATA.data && typeof window.PRELOADED_DATA.data === 'object') ? window.PRELOADED_DATA.data : window.PRELOADED_DATA;
-                    const brands = Array.isArray(src.brands) ? src.brands : (Array.isArray(window.PRELOADED_DATA.brands) ? window.PRELOADED_DATA.brands : []);
-                    const categories = Array.isArray(src.categories) ? src.categories : (Array.isArray(window.PRELOADED_DATA.categories) ? window.PRELOADED_DATA.categories : []);
+
+                    // local recursive finder for large arrays (used for big files)
+                    const recursiveFindLargeArrayLocal = (root, minLen = 6) => {
+                        try {
+                            const seen = new WeakSet();
+                            const stack = [{ node: root, path: 'root' }];
+                            while (stack.length) {
+                                const { node, path } = stack.pop();
+                                if (!node || typeof node !== 'object') continue;
+                                if (seen.has(node)) continue;
+                                seen.add(node);
+                                if (Array.isArray(node) && node.length >= minLen) {
+                                    let objCount = 0;
+                                    for (let i = 0; i < Math.min(node.length, 10); i++) if (node[i] && typeof node[i] === 'object') objCount++;
+                                    if (objCount > 0) return { array: node, path };
+                                }
+                                if (Array.isArray(node)) {
+                                    for (let i = 0; i < node.length; i++) stack.push({ node: node[i], path: path + '[' + i + ']' });
+                                } else {
+                                    for (const k of Object.keys(node)) stack.push({ node: node[k], path: path + '.' + k });
+                                }
+                            }
+                        } catch (e) { console.warn('recursiveFindLargeArrayLocal error', e); }
+                        return null;
+                    };
+
+                    // attempt to determine brands & categories arrays
+                    let brands = Array.isArray(src.brands) ? src.brands : (Array.isArray(window.PRELOADED_DATA.brands) ? window.PRELOADED_DATA.brands : []);
+                    let categories = Array.isArray(src.categories) ? src.categories : (Array.isArray(window.PRELOADED_DATA.categories) ? window.PRELOADED_DATA.categories : []);
+
+                    // if brands empty, attempt to find a large array that may be brands
+                    if ((!brands || brands.length === 0)) {
+                        const found = recursiveFindLargeArrayLocal(src, 6) || recursiveFindLargeArrayLocal(window.PRELOADED_DATA, 6);
+                        if (found && Array.isArray(found.array) && found.array.length > 0) {
+                            // Heuristic: if first element has 'logo' or 'brand' or 'name' as object, treat as brands
+                            const sample = found.array[0];
+                            const isBrandLike = sample && typeof sample === 'object' && (sample.logo || (sample.name && typeof sample.name === 'object') || sample.brandId === undefined);
+                            if (isBrandLike) {
+                                brands = found.array;
+                                console.info('forceRender: detected brands array at', found.path, 'count:', brands.length);
+                            } else {
+                                // treat as products array fallback
+                                const productsFallback = found.array;
+                                console.info('forceRender: detected products array at', found.path, 'count:', productsFallback.length);
+                                // write directly to PRODUCTS and return
+                                await Promise.all([dbClear(STORES.PRODUCTS)]);
+                                const normalized = productsFallback.map(p => {
+                                    try {
+                                        if (typeof p.name === 'string') p.name = { en: p.name };
+                                        else if (!p.name) p.name = { en: p.title || '' };
+                                    } catch(e) {}
+                                    return p;
+                                });
+                                if (normalized.length) await Promise.all(normalized.map(p => dbPut(STORES.PRODUCTS, p)));
+                                console.info('forceRender: imported productsFallback count', normalized.length);
+                                try { window.location.reload(); } catch(e){}
+                                return;
+                            }
+                        }
+                    }
+
                     const productsFromBrands = [];
-                    for (const brand of brands) {
+                    for (const brand of (brands || [])) {
                         const brandId = brand.id || brand.brandId || null;
+                        // normalize brand name if string
+                        try { if (brand && typeof brand.name === 'string') brand.name = { en: brand.name }; } catch(e){}
                         // direct items/products
                         if (Array.isArray(brand.items)) {
-                            for (const it of brand.items) { try { it.brandId = it.brandId || brandId; productsFromBrands.push(it); } catch(e){} }
+                            for (const it of brand.items) { try { if (typeof it.name === 'string') it.name = { en: it.name }; it.brandId = it.brandId || brandId; productsFromBrands.push(it); } catch(e){} }
                         }
                         if (Array.isArray(brand.products)) {
-                            for (const it of brand.products) { try { it.brandId = it.brandId || brandId; productsFromBrands.push(it); } catch(e){} }
+                            for (const it of brand.products) { try { if (typeof it.name === 'string') it.name = { en: it.name }; it.brandId = it.brandId || brandId; productsFromBrands.push(it); } catch(e){} }
                         }
                         if (Array.isArray(brand.collections)) {
                             for (const col of brand.collections) {
                                 const categoryId = col.id || col.categoryId || null;
                                 if (Array.isArray(col.items)) {
-                                    for (const it of col.items) { try { it.brandId = it.brandId || brandId; it.categoryId = it.categoryId || categoryId; productsFromBrands.push(it); } catch(e){} }
+                                    for (const it of col.items) { try { if (typeof it.name === 'string') it.name = { en: it.name }; it.brandId = it.brandId || brandId; it.categoryId = it.categoryId || categoryId; productsFromBrands.push(it); } catch(e){} }
                                 }
                                 if (Array.isArray(col.products)) {
-                                    for (const it of col.products) { try { it.brandId = it.brandId || brandId; it.categoryId = it.categoryId || categoryId; productsFromBrands.push(it); } catch(e){} }
+                                    for (const it of col.products) { try { if (typeof it.name === 'string') it.name = { en: it.name }; it.brandId = it.brandId || brandId; it.categoryId = it.categoryId || categoryId; productsFromBrands.push(it); } catch(e){} }
                                 }
                             }
                         }
