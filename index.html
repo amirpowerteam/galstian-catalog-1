@@ -1114,42 +1114,11 @@ python -m http.server 8080
 
                     try { normalizePaths(dataObj); } catch(e) { console.warn('normalizePaths failed', e); }
 
-                    // Robustly detect brands/categories/products arrays inside the incoming backup
-                    let products = Array.isArray(dataObj.products) ? dataObj.products.slice() : [];
-                    let brands = Array.isArray(dataObj.brands) ? dataObj.brands.slice() : [];
-                    let categories = Array.isArray(dataObj.categories) ? dataObj.categories.slice() : [];
-
-                    const looksLikeProducts = (arr) => Array.isArray(arr) && arr.length > 0 && typeof arr[0] === 'object' && (('name' in arr[0]) || ('description' in arr[0]) || ('price' in arr[0]) || ('images' in arr[0]) || ('id' in arr[0]));
-                    const looksLikeBrands = (arr) => Array.isArray(arr) && arr.length > 0 && typeof arr[0] === 'object' && (('logo' in arr[0]) || ('brand' in arr[0]) || ('id' in arr[0] && String(arr[0].id).toLowerCase().includes('brand')) || (arr[0].name && (typeof arr[0].name === 'string' || typeof arr[0].name === 'object')));
-                    const looksLikeCategories = (arr) => Array.isArray(arr) && arr.length > 0 && typeof arr[0] === 'object' && (('category' in arr[0]) || ('id' in arr[0] && String(arr[0].id).toLowerCase().includes('cat')) || (arr[0].name && (typeof arr[0].name === 'string' || typeof arr[0].name === 'object')));
-
-                    // Scan top-level keys for candidate arrays
-                    for (const k of Object.keys(dataObj || {})) {
-                        try {
-                            const v = dataObj[k];
-                            if (!Array.isArray(v) || v.length === 0 || typeof v[0] !== 'object') continue;
-                            if (!products.length && looksLikeProducts(v)) { products = v; console.info('Detected products in key:', k); continue; }
-                            if (!brands.length && looksLikeBrands(v)) { brands = v; console.info('Detected brands in key:', k); continue; }
-                            if (!categories.length && looksLikeCategories(v)) { categories = v; console.info('Detected categories in key:', k); continue; }
-                        } catch (e) { /* ignore */ }
-                    }
-
-                    // If still not found, search one level deeper inside top-level objects
-                    if (!products.length) {
-                        for (const k of Object.keys(dataObj || {})) {
-                            const v = dataObj[k];
-                            if (!v || typeof v !== 'object') continue;
-                            for (const k2 of Object.keys(v)) {
-                                try {
-                                    const v2 = v[k2];
-                                    if (looksLikeProducts(v2)) { products = v2; console.info('Detected products in nested key:', k, k2); break; }
-                                } catch (e) { /* ignore */ }
-                            }
-                            if (products.length) break;
-                        }
-                    }
-
-                    const data = { brands: brands || [], categories: categories || [], products: products || [] };
+                    const data = {
+                        brands: dataObj.brands || [],
+                        categories: dataObj.categories || [],
+                        products: dataObj.products || []
+                    };
                     const config = dataObj.config || {
                         app_title: dataObj.app_title || 'GALSTIAN',
                         welcome_images: dataObj.welcome_images || [],
@@ -1157,11 +1126,7 @@ python -m http.server 8080
                         welcome_background_type: dataObj.welcome_background_type || 'image',
                         welcome_background_video: dataObj.welcome_background_video || null
                     };
-
-                    // Expose both the raw object and the normalized data for debugging
                     window.PRELOADED_DATA = { data, config };
-                    try { console.info('Full PRELOADED_DATA object:'); console.dir(dataObj); } catch (e) { console.warn('console.dir(dataObj) failed', e); }
-                    try { console.info('Normalized data used by app:'); console.dir(data); } catch (e) { /* ignore */ }
                     try {
                         // If running on GitHub Pages, clear the 'catalog_preloaded_v1' flag
                         // to force a fresh import from the deployed backup (helpful after deploys).
@@ -1179,7 +1144,7 @@ python -m http.server 8080
                 return false;
             })();
         })();
-        window.onload = async () => {
+        window.onload = () => {
             const { useState, useEffect, useCallback, useMemo, useRef } = React;
 
             // --- CONSTANTS ---
@@ -5391,31 +5356,31 @@ python -m http.server 8080
                         ]);
                         setWelcomeImages(imagesConfig?.value || []);
                         setWelcomeVideo(videoConfig?.value || null);
-                        // If welcome video is not set, probe common uploaded_media locations
+                        // If welcome video is not set, probe common uploaded_media locations (prefer nested boloc3)
                         (async () => {
-                                try {
-                                    if (!videoConfig?.value) {
-                                        const candidates = [
-                                            'uploaded_media/boloc3/boloc3.mp4',
-                                            'uploaded_media/boloc3.mp4',
-                                            'uploaded_media/boloc-3.mp4',
-                                            'uploaded_media/bloc3.mp4'
-                                        ];
-                                        for (const c of candidates) {
-                                            try {
-                                                const full = c.startsWith('http') ? c : (window.location.origin + '/' + c.replace(/^\/+/, ''));
-                                                const res = await fetch(full, { method: 'HEAD', cache: 'no-store' });
-                                                if (res && res.ok) {
-                                                    setWelcomeVideo(c);
-                                                    try { await dbPut(STORES.CONFIG, { key: 'welcome_video', value: c }); } catch (e) { /* ignore */ }
-                                                    console.log('Seeded welcome_video with', c);
-                                                    break;
-                                                }
-                                            } catch (e) { /* ignore probe errors */ }
-                                        }
+                            try {
+                                if (!videoConfig?.value) {
+                                    const candidates = [
+                                        'uploaded_media/boloc3/boloc3.mp4',
+                                        'uploaded_media/boloc3.mp4',
+                                        'uploaded_media/boloc-3.mp4',
+                                        'uploaded_media/bloc3.mp4'
+                                    ];
+                                    for (const c of candidates) {
+                                        try {
+                                            const full = c.startsWith('http') ? c : (window.location.origin + '/' + c.replace(/^\/+/, ''));
+                                            const res = await fetch(full, { method: 'HEAD', cache: 'no-store' });
+                                            if (res && res.ok) {
+                                                setWelcomeVideo(c);
+                                                try { await dbPut(STORES.CONFIG, { key: 'welcome_video', value: c }); } catch (e) { /* ignore */ }
+                                                console.log('Seeded welcome_video with', c);
+                                                break;
+                                            }
+                                        } catch (e) { /* ignore probe errors */ }
                                     }
-                                } catch (e) { /* ignore */ }
-                            })();
+                                }
+                            } catch (e) { /* ignore */ }
+                        })();
                         setWelcomeBackgroundType(bgTypeConfig?.value || 'photos');
                         setWelcomeBackgroundVideo(bgVideoConfig?.value || null);
                         setFooterSettings(footerConfig?.value || null);
@@ -5481,45 +5446,40 @@ python -m http.server 8080
                             const needsHeading = !currentHero || !currentHero.heading;
                             const needsBody = !currentHero || !currentHero.body;
                             if ((needsHeading || needsBody)) {
-                                    const backupCandidates = [
-                                        './catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
-                                        './catalog_backup.json',
-                                        './backup-catalog-20251231144131.json',
-                                        './catalog_backup_lazy_2025-12-24T19-43-29-945Z.json',
-                                        // Fallback to raw.githubusercontent in case Pages doesn't expose deploy/ files
-                                        'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
-                                        'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/deploy/catalog_backup.json',
-                                        'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/deploy/backup-catalog-20251231144131.json',
-                                        'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/catalog_backup_lazy_2025-12-24T19-43-29-945Z.json'
-                                    ];
-                                    let backup = null;
-                                    for (const b of backupCandidates) {
-                                        try {
-                                            const r = await fetch(b);
-                                            if (r && r.ok) { backup = await r.json(); break; }
-                                        } catch (e) { /* ignore */ }
-                                    }
-                                    if (backup && backup.hero_media_block) {
-                                        const from = backup.hero_media_block;
-                                        const merged = Object.assign({}, currentHero || {}, {
-                                            heading: currentHero?.heading || from.heading || null,
-                                            body: currentHero?.body || from.body || null
-                                        });
-                                        try { await dbPut(STORES.CONFIG, { key: 'hero_media_block', value: merged }); } catch (e) { console.warn('Failed writing restored hero text', e); }
-                                        setHeroMediaBlock(merged);
-                                        console.log('Restored hero heading/body from local backup');
-                                    }
+                                const backupCandidates = [
+                                    './catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
+                                    './catalog_backup.json',
+                                    './backup-catalog-20251231144131.json',
+                                    './catalog_backup_lazy_2025-12-24T19-43-29-945Z.json',
+                                    // Fallback to raw.githubusercontent in case Pages doesn't expose deploy/ files
+                                    'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
+                                    'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/deploy/catalog_backup.json',
+                                    'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/deploy/backup-catalog-20251231144131.json',
+                                    'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/catalog_backup_lazy_2025-12-24T19-43-29-945Z.json'
+                                ];
+                                let backup = null;
+                                for (const b of backupCandidates) {
+                                    try {
+                                        const r = await fetch(b);
+                                        if (r && r.ok) { backup = await r.json(); break; }
+                                    } catch (e) { /* ignore */ }
+                                }
+                                if (backup && backup.hero_media_block) {
+                                    const from = backup.hero_media_block;
+                                    const merged = Object.assign({}, currentHero || {}, {
+                                        heading: currentHero?.heading || from.heading || null,
+                                        body: currentHero?.body || from.body || null
+                                    });
+                                    try { await dbPut(STORES.CONFIG, { key: 'hero_media_block', value: merged }); } catch (e) { console.warn('Failed writing restored hero text', e); }
+                                    setHeroMediaBlock(merged);
+                                    console.log('Restored hero heading/body from local backup');
+                                }
+                            }
                         } catch (e) {
                             console.warn('Hero restore from backup failed', e);
                         }
 
                         await refreshView({ type: 'brands' });
-                        try {
-                            const postProducts = await dbGetAll(STORES.PRODUCTS);
-                            if (!postProducts || postProducts.length === 0) {
-                                console.warn('Initialization complete but product list is empty.');
-                            }
-                        } catch (e) { console.warn('Failed to inspect products after init', e); }
 
                     } catch (error) {
                         console.error("Initialization Error:", error);
@@ -6936,15 +6896,6 @@ python -m http.server 8080
             console.log('%cDB Name:', 'color: lightblue;', DB_NAME);
 
             // Debug helper removed — no floating debug button in production.
-            // If the preloaded data is still being fetched, wait for it to avoid a mount without the backup.
-            if (window.PRELOADED_DATA_PROMISE) {
-                try {
-                    await window.PRELOADED_DATA_PROMISE;
-                    console.info('PRELOADED_DATA_PROMISE resolved before mounting React.');
-                } catch (e) {
-                    console.warn('PRELOADED_DATA_PROMISE failed before mount', e);
-                }
-            }
 
             ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 
