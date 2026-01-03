@@ -3205,12 +3205,17 @@ python -m http.server 8080
                                 // build candidates
                                 const candidates = [heroUrl];
                                 try {
-                                    if (heroUrl.startsWith('/')) candidates.push(window.location.origin + heroUrl);
+                                    if (heroUrl.startsWith('/') && (/^\/(uploaded_media|deploy|assets)\//.test(heroUrl))) {
+                                        const v = './' + heroUrl.replace(/^\/+/, '');
+                                        candidates.push(v);
+                                    } else if (heroUrl.startsWith('/')) {
+                                        candidates.push(window.location.origin + heroUrl);
+                                    }
                                     const resolved = new URL(heroUrl, window.location.href).href;
                                     if (!candidates.includes(resolved)) candidates.push(resolved);
                                 } catch (e) { /* ignore */ }
                                 if (heroUrl.includes('uploaded_media') && !heroUrl.startsWith('/')) {
-                                    const withOrigin = window.location.origin + (heroUrl.startsWith('.') ? heroUrl.slice(1) : '/' + heroUrl);
+                                    const withOrigin = new URL(heroUrl, window.location.href).href;
                                     candidates.push(withOrigin);
                                 }
 
@@ -4996,12 +5001,12 @@ python -m http.server 8080
                                         const asciiFolders = ['boloc2','boloc-2','boloc2','boloc3','boloc-3','bloc2','bloc3'];
                                         const basenameNoExt = basename.replace(/\.[^.]+$/, '');
                                         for (const af of asciiFolders) {
-                                            const withOrigin = window.location.origin + '/uploaded_media/' + af + '/' + basename;
+                                            const withOrigin = new URL('uploaded_media/' + af + '/' + basename, window.location.href).href;
                                             if (!candidates.includes(withOrigin)) candidates.push(withOrigin);
                                             const withoutOrigin = 'uploaded_media/' + af + '/' + basename;
                                             if (!candidates.includes(withoutOrigin)) candidates.push(withoutOrigin);
 
-                                            const withOriginNoExt = window.location.origin + '/uploaded_media/' + af + '/' + basenameNoExt;
+                                            const withOriginNoExt = new URL('uploaded_media/' + af + '/' + basenameNoExt, window.location.href).href;
                                             if (!candidates.includes(withOriginNoExt)) candidates.push(withOriginNoExt);
                                             const withoutOriginNoExt = 'uploaded_media/' + af + '/' + basenameNoExt;
                                             if (!candidates.includes(withoutOriginNoExt)) candidates.push(withoutOriginNoExt);
@@ -5016,7 +5021,7 @@ python -m http.server 8080
                                     if (basename) {
                                         const persianFolders = ['بلوک ۲', 'بلوک ۳'];
                                         for (const pf of persianFolders) {
-                                            const withOrigin = window.location.origin + '/uploaded_media/' + encodeURIComponent(pf) + '/' + encodeURIComponent(basename);
+                                            const withOrigin = new URL('uploaded_media/' + encodeURIComponent(pf) + '/' + encodeURIComponent(basename), window.location.href).href;
                                             if (!candidates.includes(withOrigin)) candidates.push(withOrigin);
                                             const withoutOrigin = 'uploaded_media/' + pf + '/' + basename;
                                             if (!candidates.includes(withoutOrigin)) candidates.push(withoutOrigin);
@@ -5206,7 +5211,7 @@ python -m http.server 8080
                                     ];
                                     for (const c of candidates) {
                                         try {
-                                            const full = c.startsWith('http') ? c : window.location.origin + c;
+                                            const full = c.startsWith('http') ? c : new URL('./' + c.replace(/^\/+/, ''), window.location.href).href;
                                             const res = await fetch(full, { method: 'HEAD', cache: 'no-store' });
                                             if (res && res.ok) {
                                                 setWelcomeVideo(c);
@@ -5873,16 +5878,20 @@ python -m http.server 8080
                                 // Build a list of candidate URLs to try (original, absolute, resolved)
                                 const candidates = [url];
                                 try {
-                                    // If starts with '/', try origin-prefixed URL
-                                    if (url.startsWith('/')) candidates.push(window.location.origin + url);
+                                    // If starts with '/' and targets repo-root media, prefer relative './...' so GitHub Pages resolves under /<repo>/
+                                    if (url.startsWith('/') && (/^\/(uploaded_media|deploy|assets)\//.test(url))) {
+                                        candidates.push('./' + url.replace(/^\/+/, ''));
+                                    } else if (url.startsWith('/')) {
+                                        candidates.push(window.location.origin + url);
+                                    }
                                     // Try resolving relative URLs against current location
                                     try {
                                         const resolved = new URL(url, window.location.href).href;
                                         if (!candidates.includes(resolved)) candidates.push(resolved);
                                     } catch (e) { /* ignore invalid URL */ }
-                                    // If url contains 'uploaded_media' without leading slash, try adding origin
+                                    // If url contains 'uploaded_media' without leading slash, try resolving relative to page
                                     if (url.includes('uploaded_media') && !url.startsWith('/')) {
-                                        const withOrigin = window.location.origin + (url.startsWith('.') ? url.slice(1) : '/' + url);
+                                        const withOrigin = new URL(url, window.location.href).href;
                                         if (!candidates.includes(withOrigin)) candidates.push(withOrigin);
                                     }
                                 } catch (e) {
@@ -5940,7 +5949,7 @@ python -m http.server 8080
                                 ];
                                 const tryHead = async (u) => {
                                     try {
-                                        const full = u.startsWith('http') ? u : window.location.origin + u;
+                                        const full = u.startsWith('http') ? u : new URL('./' + u.replace(/^\/+/, ''), window.location.href).href;
                                         const resp = await fetch(full, { method: 'HEAD', cache: 'no-store' });
                                         return resp && resp.ok;
                                     } catch (e) { return false; }
@@ -6003,7 +6012,7 @@ python -m http.server 8080
                                 ];
                                 for (const c of commonCandidates) {
                                     try {
-                                        const resolved = c.startsWith('/') ? window.location.origin + c : new URL(c, window.location.href).href;
+                                        const resolved = c.startsWith('/') ? new URL('./' + c.replace(/^\/+/, ''), window.location.href).href : new URL(c, window.location.href).href;
                                         const maybe = await maybeFetchAsDataUrl(resolved);
                                         if (maybe) {
                                             embeddedMedia.hero_video = { src: resolved, dataUrl: maybe };
