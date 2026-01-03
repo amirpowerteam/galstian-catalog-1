@@ -12,27 +12,7 @@
                 if (origFetch) {
                     window.fetch = function(input, init) {
                         if (input == null) return Promise.reject(new TypeError('fetch called with null or undefined'));
-                        // rewrite accidental string 'null'
                         if (typeof input === 'string' && input.trim().toLowerCase() === 'null') return Promise.reject(new TypeError('fetch called with string "null"'));
-
-                        // Normalize known remote hostnames (older backups) to local relative paths so GitHub Pages subpaths work.
-                        try {
-                            // If input is a Request, inspect its url
-                            let urlStr = null;
-                            if (typeof input === 'string') urlStr = input;
-                            else if (input && input.url) urlStr = input.url;
-                            if (typeof urlStr === 'string') {
-                                const u = new URL(urlStr, location.href);
-                                if (u.hostname && u.hostname.indexOf('amirpowerteam.github.io') !== -1) {
-                                    // Build an absolute URL using current origin + the original pathname
-                                    const abs = (u.pathname || '') + (u.search || '') + (u.hash || '');
-                                    const resolved = new URL(abs, location.origin).href;
-                                    if (typeof input === 'string') input = resolved;
-                                    else if (input instanceof Request) input = new Request(resolved, input);
-                                }
-                            }
-                        } catch (e) { /* ignore normalization errors */ }
-
                         return origFetch(input, init);
                     };
                 }
@@ -52,21 +32,13 @@
                             try {
                                 if (v == null) return; // ignore null/undefined
                                 if (typeof v === 'string') {
-                                        const s = v.trim();
-                                        if (!s) return;
-                                        const low = s.toLowerCase();
-                                        if (low === 'null') return; // ignore literal 'null'
-                                        if (s.indexOf('<<REDACTED') !== -1) return; // ignore scrubbed placeholders
-                                        if (s[0] === '<') return; // ignore accidental angle-bracket placeholders
-                                        // Normalize remote host references to local relative paths (older backups)
-                                        try {
-                                            const u = new URL(s, location.href);
-                                            if (u.hostname && u.hostname.indexOf('amirpowerteam.github.io') !== -1) {
-                                                const abs = (u.pathname || '') + (u.search || '') + (u.hash || '');
-                                                v = new URL(abs, location.origin).href;
-                                            }
-                                        } catch (e) { /* ignore */ }
-                                    }
+                                    const s = v.trim();
+                                    if (!s) return;
+                                    const low = s.toLowerCase();
+                                    if (low === 'null') return; // ignore literal 'null'
+                                    if (s.indexOf('<<REDACTED') !== -1) return; // ignore scrubbed placeholders
+                                    if (s[0] === '<') return; // ignore accidental angle-bracket placeholders
+                                }
                             } catch (e) { /* ignore guard errors */ }
                             return origSet.call(this, v);
                         }
@@ -177,8 +149,8 @@
 
                 const fetchText = async (p) => { try { const r = await fetch(p); if (!r.ok) return { status: r.status }; const t = await r.text(); return { status: r.status, text: t }; } catch (e) { return { error: String(e) }; } };
                 try {
-                    const idx = await fetchText('./index.html');
-                        const swf = await fetchText('./sw.js');
+                    const idx = await fetchText('/index.html');
+                    const swf = await fetchText('/sw.js');
                     report.files['/index.html'] = { status: idx.status || null, length: idx.text ? idx.text.length : 0, text: idx.text || null };
                     report.files['/sw.js'] = { status: swf.status || null, length: swf.text ? swf.text.length : 0, text: swf.text || null };
                     try { if (swf.text) { const m = swf.text.match(/const\s+CACHE_VERSION\s*=\s*['\"]([^'\"]+)['\"]/); if (m) report.env.swCacheVersion = m[1]; } } catch(e){}
@@ -473,27 +445,14 @@ python -m http.server 8080
     </script>
     <script>
         // Service Worker registration (skip on file://)
-        (async function registerSW() {
+        (function registerSW() {
             try {
                 if (window.IS_FILE_PROTOCOL) {
                     console.log('Skipping Service Worker registration under file:// protocol');
                     return;
                 }
                 if ('serviceWorker' in navigator) {
-                    // Check that /sw.js exists before attempting registration to avoid noisy 404s.
-                    try {
-                        const swCheck = await fetch(new URL('sw.js', location.href).href, { method: 'GET', cache: 'no-store' });
-                        if (!swCheck.ok) {
-                            console.warn('sw.js not available (status ' + swCheck.status + '), skipping Service Worker registration.');
-                            return;
-                        }
-                    } catch (e) {
-                        console.warn('Could not fetch /sw.js to verify existence — skipping Service Worker registration.', e);
-                        return;
-                    }
-
-                    if (!(location.hostname && location.hostname.includes('github.io'))) {
-                        navigator.serviceWorker.register('./sw.js').then((reg) => {
+                    navigator.serviceWorker.register('/sw.js').then((reg) => {
                         console.log('ServiceWorker registered:', reg);
                         if (reg.waiting) {
                             console.log('SW waiting — consider update flow');
@@ -510,9 +469,6 @@ python -m http.server 8080
                             });
                         });
                     }).catch((err) => console.error('SW registration failed', err));
-                    } else {
-                        console.log('Skipping Service Worker registration on GitHub Pages to avoid stale cache.');
-                    }
                 }
             } catch (e) {
                 console.warn('SW registration skipped:', e);
@@ -585,15 +541,6 @@ python -m http.server 8080
             }
 
             (async function loadXlsxWithCache() {
-                // If opened via file://, avoid loading local or CDN XLSX scripts which
-                // commonly trigger CORS/storage/tracking-prevention errors in browsers.
-                try {
-                    if (window.IS_FILE_PROTOCOL) {
-                        console.warn('Skipping XLSX load under file:// protocol');
-                        console.info('XLSX features will be unavailable when opened from file:// (use a local HTTP server)');
-                        return;
-                    }
-                } catch (e) { /* ignore */ }
                 // 1) Try inject from localStorage cache
                 const fromCache = await tryInjectFromLocalStorage();
                 if (fromCache) return;
@@ -669,7 +616,7 @@ python -m http.server 8080
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&family=Vazirmatn:wght@400;500;700;900&family=Playfair+Display:wght@700&display=swap"
         rel="stylesheet">
-    <link rel="preload" href="./assets/galstian-logo.png" as="image">
+    <link rel="preload" href="assets/galstian-logo.png" as="image">
     <!-- Inline favicon to avoid automatic /favicon.ico 404 when serving locally -->
     <link rel="icon" href="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23f1f5f9'/%3E%3Ctext x='8' y='11' font-size='9' text-anchor='middle' fill='%233b82f6' font-family='Arial'%3EG%3C/text%3E%3C/svg%3E">
 
@@ -973,59 +920,77 @@ python -m http.server 8080
 
 <body>
     <div id="root">
-        <div id="static-root" style="display:flex;flex-direction:column;align-items:center;padding:12px;min-height:100dvh;min-height:-webkit-fill-available;box-sizing:border-box;">
-            <div style="margin-top:12px;max-width:360px;width:100%;text-align:center;">
-                <img id="appLogo" src="./assets/galstian-logo.png" alt="GALSTIAN" style="max-width:240px;height:auto;display:block;margin:12px auto;">
-            </div>
+        <div style="display:flex; align-items:center; justify-content:center; min-height:100dvh; min-height:-webkit-fill-available; padding-bottom:env(safe-area-inset-bottom,16px); box-sizing:border-box; color:black; font-family:sans-serif;"
+            class="dark:text-white">
+            <svg class="animate-spin -ml-1 mr-3 h-8 w-8" xmlns="http://www.w3.org/2000/svg" fill="none"
+                viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                </path>
+            </svg>
+            Loading Catalog...
         </div>
     </div>
 
-        <!-- Automatic SW update + cache-clean script (silent, safe) -->
-        <script>
-        (function(){
-            if (!('serviceWorker' in navigator)) return;
-            try {
-                // Fetch sw.js to read CACHE_VERSION, then try to update/unregister old caches silently
-                fetch('./sw.js').then(r => { if (!r.ok) throw new Error('no sw'); return r.text(); }).then(txt => {
-                    const m = txt.match(/const\s+CACHE_VERSION\s*=\s*['\"]([^'\"]+)['\"]/);
-                    const newVer = m && m[1];
-                    if (!newVer) return;
-                    const seen = localStorage.getItem('GALSTIAN_SW_VER');
-                    if (seen === newVer) return;
-
-                    // Ask registered SWs to update and skip waiting if possible
-                    navigator.serviceWorker.getRegistrations().then(regs => {
-                        regs.forEach(reg => {
-                            try { reg.update(); } catch(e){}
-                            try {
-                                if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-                            } catch(e){}
-                        });
-                    }).catch(()=>{});
-
-                    // On controller change, reload once so clients use new SW/caches
-                    let reloaded = false;
-                    navigator.serviceWorker.addEventListener('controllerchange', () => {
-                        if (reloaded) return; reloaded = true; try { localStorage.setItem('GALSTIAN_SW_VER', newVer); } catch(e){}; window.location.reload();
-                    });
-
-                    // Remove old galstian-cache keys that don't include the new version
-                    try {
-                        caches.keys().then(keys => {
-                            keys.forEach(k => {
-                                if (typeof k === 'string' && k.indexOf('galstian-cache') === 0 && k.indexOf(newVer) === -1) {
-                                    try { caches.delete(k); } catch(e){}
-                                }
-                            });
-                        }).catch(()=>{});
-                    } catch(e) {}
-                }).catch(()=>{});
-            } catch(e) {}
-        })();
-        </script>
-
     <script type="text/babel">
         /* PRELOADED_DATA_PLACEHOLDER */
+        (function(){
+            if (window.PRELOADED_DATA) return;
+            window.PRELOADED_DATA_PROMISE = (async function loadPreloadedData(){
+                const tryUrls = [
+                    'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/metadata.json',
+                    'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/metadata-1.json',
+                    'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/metadata-1-1.json',
+                    'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/metadata-1-1-1.json'
+                ];
+
+                async function fetchJson(url){
+                    try{
+                        const res = await fetch(url, { cache: 'no-store' });
+                        if (!res.ok) throw new Error('status ' + res.status);
+                        return await res.json();
+                    }catch(e){ console.warn('fetchJson failed', url, e); return null; }
+                }
+
+                let dataObj = null;
+                if (!window.IS_FILE_PROTOCOL) {
+                    for (const u of tryUrls) {
+                        dataObj = await fetchJson(u);
+                        if (dataObj) { console.info('Loaded metadata from', u); break; }
+                    }
+                } else {
+                    console.info('file:// protocol detected; skipping remote fetch');
+                }
+
+                if (!dataObj) {
+                    const localCandidates = ['metadata.json','metadata-1.json','metadata-1-1.json','metadata-1-1-1.json'];
+                    for (const u of localCandidates) {
+                        dataObj = await fetchJson(u);
+                        if (dataObj) { console.info('Loaded metadata from local', u); break; }
+                    }
+                }
+
+                if (dataObj) {
+                    const data = {
+                        brands: dataObj.brands || [],
+                        categories: dataObj.categories || [],
+                        products: dataObj.products || []
+                    };
+                    const config = dataObj.config || {
+                        app_title: dataObj.app_title || 'GALSTIAN',
+                        welcome_images: dataObj.welcome_images || [],
+                        welcome_video: dataObj.welcome_video || null,
+                        welcome_background_type: dataObj.welcome_background_type || 'image',
+                        welcome_background_video: dataObj.welcome_background_video || null
+                    };
+                    window.PRELOADED_DATA = { data, config };
+                    return true;
+                }
+                console.warn('No preloaded metadata found on GitHub or local files.');
+                return false;
+            })();
+        })();
         window.onload = () => {
             const { useState, useEffect, useCallback, useMemo, useRef } = React;
 
@@ -1307,19 +1272,6 @@ python -m http.server 8080
             const dbPut = (storeName, item, key) => dbAction(storeName, 'readwrite', (store) => store.put(item, key));
             const dbDelete = (storeName, key) => dbAction(storeName, 'readwrite', (store) => store.delete(key));
             const dbClear = (storeName) => dbAction(storeName, 'readwrite', (store) => store.clear());
-
-            // Expose DB helpers to global scope so non-babel scripts can use them (auto-import script relies on these)
-            try {
-                window.dbGetAll = dbGetAll;
-                window.dbGet = dbGet;
-                window.dbPut = dbPut;
-                window.dbDelete = dbDelete;
-                window.dbClear = dbClear;
-                window.STORES = STORES;
-                window.openDB = openDB;
-            } catch (e) {
-                // ignore if window not writable in some runtimes
-            }
 
             // --- UTILITY HELPERS ---
             // Use a cryptographically-strong UUID when available to avoid collisions.
@@ -2234,24 +2186,13 @@ python -m http.server 8080
                         // Avoid fetch on file:// — keep default logo if present in DOM or assets
                         return;
                     }
-                    fetch('assets/galstian-logo.b64').then(async (r) => {
-                        try {
-                            if (!r.ok) throw new Error('galstian-logo.b64 not found: ' + r.status);
-                            const b64 = (await r.text()).trim();
-                            // Basic sanity checks: should not contain HTML and must look like base64
-                            const base64Re = /^[A-Za-z0-9+/=\s]+$/;
-                            if (b64 && b64.length > 50 && base64Re.test(b64) && b64.indexOf('<') === -1) {
-                                const img = document.getElementById('appLogo');
-                                if (img) img.src = 'data:image/png;base64,' + b64;
-                            } else {
-                                console.warn('galstian-logo.b64 appears invalid or is HTML — skipping data URI set');
-                            }
-                        } catch (e) {
-                            // ignore errors but log for diagnostics
-                            console.warn('Failed to load galstian-logo.b64:', e && e.message ? e.message : e);
+                    fetch('assets/galstian-logo.b64').then(r => r.text()).then(b64 => {
+                        if (b64 && b64.length > 50) {
+                            const img = document.getElementById('appLogo');
+                            if (img) img.src = 'data:image/png;base64,' + b64.trim();
                         }
                     }).catch(() => {
-                        // ignore unexpected errors
+                        // ignore errors
                     });
                 }, []);
 
@@ -2285,7 +2226,7 @@ python -m http.server 8080
                         >
                             <img
                                 id="appLogo"
-                                src="./assets/galstian-logo.png"
+                                src="assets/galstian-logo.png"
                                 alt="GALSTIAN Logo"
                                 className="h-14 sm:h-20 md:h-24 w-auto filter drop-shadow-2xl object-contain"
                                 loading="eager"
@@ -2876,6 +2817,9 @@ python -m http.server 8080
 
                 const fetchData = useCallback(async () => {
                     setIsLoading(true);
+                    if (window.PRELOADED_DATA_PROMISE) {
+                        try { await window.PRELOADED_DATA_PROMISE; } catch(e) { console.warn('PRELOADED_DATA_PROMISE error', e); }
+                    }
                     const [p, b, c] = await Promise.all([
                         dbGetAll(STORES.PRODUCTS),
                         dbGetAll(STORES.BRANDS),
@@ -5340,7 +5284,7 @@ python -m http.server 8080
                             const needsHeading = !currentHero || !currentHero.heading;
                             const needsBody = !currentHero || !currentHero.body;
                             if ((needsHeading || needsBody)) {
-                                const backupCandidates = ['/deploy/catalog_backup.json','/deploy/backup-catalog-20251231144131.json','/catalog_backup_lazy_2025-12-24T19-43-29-945Z.json'];
+                                const backupCandidates = ['/deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json','/deploy/catalog_backup.json','/deploy/backup-catalog-20251231144131.json','/catalog_backup_lazy_2025-12-24T19-43-29-945Z.json'];
                                 let backup = null;
                                 for (const b of backupCandidates) {
                                     try {
@@ -6804,318 +6748,6 @@ python -m http.server 8080
         };
     </script>
     <script>
-        // Helper: Import a JSON backup file from the site root (useful when the backup is deployed alongside the app).
-        // Usage: importBackupFromRepo('catalog_backup_lazy_2026-01-01T18-42-54-296Z.json')
-        // Options: { silent: true } to skip confirm/alert (used for automatic load)
-        window.importBackupFromRepo = async function(filename, options = {}) {
-            const silent = !!options.silent;
-            try {
-                if (!filename) {
-                    if (!silent) alert('Please provide a filename to import from the site root.');
-                    return;
-                }
-                if (!silent) {
-                    if (!confirm(TRANSLATIONS.importConfirm || 'Are you sure? Importing will ERASE and REPLACE all current data with the backup.')) return;
-                }
-
-                // Basic fetch guard (skip on file://)
-                if (window.IS_FILE_PROTOCOL) {
-                    if (!silent) alert('Import from repo is not available when opening the page via file://. Serve the folder with a local server.');
-                    return;
-                }
-
-                // Ensure loading indicator exists and show it
-                try {
-                    let loader = document.getElementById('auto-import-loading');
-                    if (!loader) {
-                        loader = document.createElement('div');
-                        loader.id = 'auto-import-loading';
-                        loader.style.position = 'fixed';
-                        loader.style.top = '0';
-                        loader.style.left = '0';
-                        loader.style.right = '0';
-                        loader.style.padding = '10px 12px';
-                        loader.style.zIndex = '99999';
-                        loader.style.background = 'linear-gradient(90deg,#0ea5e9,#60a5fa)';
-                        loader.style.color = 'white';
-                        loader.style.fontWeight = '600';
-                        loader.style.textAlign = 'center';
-                        loader.style.fontFamily = 'Vazirmatn, Arial, sans-serif';
-                        loader.textContent = 'در حال بارگذاری... / Loading...';
-                        document.body.appendChild(loader);
-                    } else {
-                        loader.style.display = 'block';
-                    }
-                } catch (e) { /* ignore UI errors */ }
-
-                // Use exact URL when provided; support absolute URL strings
-                const url = (typeof filename === 'string' && (filename.startsWith('http://') || filename.startsWith('https://') || filename.startsWith('//'))) ? filename : new URL(filename, window.location.href).href;
-                const resp = await fetch(url, { cache: 'no-store' });
-                if (!resp.ok) throw new Error('Failed to fetch backup: ' + resp.status);
-                const json = await resp.json();
-
-                // Normalize known external hostnames used in older backups so assets resolve locally.
-                // Replace occurrences of the remote GitHub Pages host with a relative path.
-                try {
-                    const REMOTE_HOST_RE = /https?:\/\/amirpowerteam\.github\.io(\/galstian-catalog-1)?/g;
-                    const normalizeBackupUrls = (val) => {
-                        if (!val) return val;
-                        if (typeof val === 'string') return val.replace(REMOTE_HOST_RE, '');
-                        if (Array.isArray(val)) return val.map(normalizeBackupUrls);
-                        if (typeof val === 'object') {
-                            for (const k of Object.keys(val)) {
-                                try {
-                                    val[k] = normalizeBackupUrls(val[k]);
-                                } catch (e) {
-                                    // ignore individual property failures
-                                }
-                            }
-                            return val;
-                        }
-                        return val;
-                    };
-                    normalizeBackupUrls(json);
-                    console.log('Normalized remote backup URLs (amirpowerteam.github.io) to local paths where present.');
-                } catch (e) {
-                    console.warn('Failed to normalize backup URLs:', e);
-                }
-
-                // Expecting shape: { data: { brands:[], categories:[], products:[] }, config: { ... } }
-                // Some exports wrap data under `data` key
-                const root = (json && json.data) ? json.data : json;
-                const brands = root.brands || [];
-                const categories = root.categories || [];
-                const products = root.products || [];
-                const config = json.config || root.config || {};
-
-                // Quick validation: ensure products is an array
-                if (!Array.isArray(products)) throw new Error('Backup JSON does not contain products array at expected path.');
-
-                if (!root || (!root.brands && !root.products && !root.categories)) {
-                    throw new Error('Invalid backup format.');
-                }
-
-                // sanitizeValue copied from the main import routine
-                const sanitizeValue = (v) => {
-                    if (v === undefined) return null;
-                    if (v === null) return null;
-                    if (typeof v === 'string') {
-                        if (/^<<REDACTED/.test(v)) return null;
-                        if (/^<<omitted-large-string:/.test(v)) return null;
-                        if ((v.length > 1000000 && !v.startsWith('data:')) || v.startsWith('file:')) return null;
-                        return v;
-                    }
-                    if (Array.isArray(v)) return v.map(sanitizeValue);
-                    if (typeof v === 'object') {
-                        const out = {};
-                        for (const k of Object.keys(v)) out[k] = sanitizeValue(v[k]);
-                        return out;
-                    }
-                    return v;
-                };
-
-                // Clear stores then write
-                await Promise.all(Object.values(STORES).map(s => dbClear(s)));
-
-                const importBrands = (brands || []);
-                const importCategories = (categories || []);
-                const importProducts = (products || []);
-
-                await Promise.all([
-                    ...importBrands.map(item => dbPut(STORES.BRANDS, item)),
-                    ...importCategories.map(item => dbPut(STORES.CATEGORIES, item)),
-                    ...importProducts.map(item => dbPut(STORES.PRODUCTS, item)),
-                    dbPut(STORES.CONFIG, { key: 'app_title', value: sanitizeValue((config && config.app_title) || null) }),
-                    dbPut(STORES.CONFIG, { key: 'welcome_images', value: sanitizeValue((config && config.welcome_images) || null) }),
-                    dbPut(STORES.CONFIG, { key: 'welcome_video', value: sanitizeValue((config && config.welcome_video) || null) }),
-                    dbPut(STORES.CONFIG, { key: 'welcome_background_type', value: sanitizeValue((config && config.welcome_background_type) || null) }),
-                    dbPut(STORES.CONFIG, { key: 'welcome_background_video', value: sanitizeValue((config && config.welcome_background_video) || null) }),
-                    dbPut(STORES.CONFIG, { key: 'hero_media_block', value: sanitizeValue((config && config.hero_media_block) || null) }),
-                    dbPut(STORES.CONFIG, { key: 'footer_info', value: sanitizeValue((config && config.footer_info) || null) }),
-                ]);
-
-                // restore embedded media if present
-                try {
-                    const embedded = (config && config._embedded_media) || (json._embedded_media) || null;
-                    if (embedded) {
-                        if (embedded.welcome_video && embedded.welcome_video.dataUrl) {
-                            await dbPut(STORES.CONFIG, { key: 'welcome_video', value: embedded.welcome_video.dataUrl });
-                        }
-                        if (embedded.welcome_background_video && embedded.welcome_background_video.dataUrl) {
-                            await dbPut(STORES.CONFIG, { key: 'welcome_background_video', value: embedded.welcome_background_video.dataUrl });
-                        }
-                        if (embedded.hero_video && embedded.hero_video.dataUrl) {
-                            const existingHero = await dbGet(STORES.CONFIG, 'hero_media_block');
-                            const heroVal = (existingHero && existingHero.value) ? existingHero.value : {};
-                            heroVal.mediaUrl = embedded.hero_video.dataUrl;
-                            if (!heroVal.mediaType) heroVal.mediaType = 'video';
-                            await dbPut(STORES.CONFIG, { key: 'hero_media_block', value: heroVal });
-                        }
-                    }
-                } catch (e) {
-                    console.warn('Failed restoring embedded media during import-from-repo', e);
-                }
-
-                try {
-                    if (!silent) alert(TRANSLATIONS.importSuccess || 'Data imported successfully!');
-                    else console.log('importBackupFromRepo: import completed (silent)');
-                } catch (e) { console.log('Import completed'); }
-                // reload to ensure render uses fresh DB
-                window.location.reload();
-            } catch (err) {
-                // log error and hide loader
-                console.error('importBackupFromRepo error', err);
-                try {
-                    const loader = document.getElementById('auto-import-loading');
-                    if (loader) loader.style.display = 'none';
-                } catch (e) {}
-                try { if (!silent) alert(TRANSLATIONS.importError || 'Failed to import data.'); } catch (e) {}
-            }
-        };
-    </script>
-    <script>
-        // Auto-load backup from repo on initial page load when DB is missing or data is invalid.
-        (function() {
-            // Default backup URL: prefer a local deploy copy when available to avoid remote 404s.
-            // If you want to force a remote import, replace this value with a full https:// URL.
-            // Prefer the canonical backup file that already exists in the `deploy` folder.
-            // If a time-stamped "lazy" backup exists on the server it will be detected
-            // by the localCandidates check below, otherwise we fall back to this file.
-            const BACKUP_URL = './deploy/catalog_backup.json';
-
-            const dataLooksValid = (products, brands, categories) => {
-                try {
-                    if (!products || !Array.isArray(products) || products.length === 0) return false;
-                    // each product should have an id; otherwise treat as invalid
-                    for (const p of products) {
-                        if (!p || !p.id) return false;
-                    }
-                    // optional: ensure referenced brand/category ids exist
-                    const brandIds = new Set((brands || []).map(b => b.id));
-                    const categoryIds = new Set((categories || []).map(c => c.id));
-                    for (const p of products) {
-                        if (p.brandId && !brandIds.has(p.brandId)) return false;
-                        if (p.categoryId && !categoryIds.has(p.categoryId)) return false;
-                    }
-                    return true;
-                } catch (e) { return false; }
-            };
-
-            document.addEventListener('DOMContentLoaded', async () => {
-                // If opened via file:// skip auto-import flow and do NOT show the loader
-                try {
-                    if (window.IS_FILE_PROTOCOL) {
-                        console.log('Skipping auto-import UI under file://');
-                        return; // do not create loader when running from file://
-                    }
-                } catch (e) { /* ignore */ }
-
-                // Show a minimal loader immediately so user sees activity
-                try {
-                    let loader = document.getElementById('auto-import-loading');
-                    if (!loader) {
-                        loader = document.createElement('div');
-                        loader.id = 'auto-import-loading';
-                        loader.style.position = 'fixed';
-                        loader.style.top = '0';
-                        loader.style.left = '0';
-                        loader.style.right = '0';
-                        loader.style.padding = '10px 12px';
-                        loader.style.zIndex = '99999';
-                        loader.style.background = 'linear-gradient(90deg,#0ea5e9,#60a5fa)';
-                        loader.style.color = 'white';
-                        loader.style.fontWeight = '600';
-                        loader.style.textAlign = 'center';
-                        loader.style.fontFamily = 'Vazirmatn, Arial, sans-serif';
-                        loader.textContent = 'در حال بارگذاری... / Loading...';
-                        document.body.appendChild(loader);
-                    } else {
-                        loader.style.display = 'block';
-                    }
-                } catch (e) { /* ignore UI errors */ }
-
-                    // Wait for DB helpers to be exported to window (avoid race with Babel script)
-                    const waitForHelpers = (timeoutMs = 5000) => new Promise((resolve, reject) => {
-                        const start = Date.now();
-                        const check = () => {
-                            if (window && typeof window.dbGetAll === 'function') return resolve();
-                            if (Date.now() - start > timeoutMs) return reject(new Error('Timed out waiting for DB helpers')); 
-                            setTimeout(check, 100);
-                        };
-                        check();
-                    });
-
-                    try {
-                        await waitForHelpers(5000);
-                    } catch (e) {
-                        console.warn('Timed out waiting for DB helpers; auto-import may fail', e);
-                    }
-
-                    // Attempt to read current DB contents (use window.dbGetAll if available)
-                    const safeDbGetAll = (name) => (window.dbGetAll ? window.dbGetAll(name).catch(() => null) : Promise.resolve(null));
-
-                    const [products, brands, categories] = await Promise.all([
-                        safeDbGetAll(STORES.PRODUCTS),
-                        safeDbGetAll(STORES.BRANDS),
-                        safeDbGetAll(STORES.CATEGORIES),
-                    ]);
-
-                    if (dataLooksValid(products, brands, categories)) {
-                        console.log('Auto-import check: existing data appears valid — skipping forced import.');
-                        try { const loader = document.getElementById('auto-import-loading'); if (loader) loader.style.display = 'none'; } catch(e){}
-                        return;
-                    }
-
-                    console.log('Auto-import check: data missing or invalid — forcing import from', BACKUP_URL);
-                    if (typeof window.importBackupFromRepo === 'function') {
-                        // Try several local candidate paths before falling back to the configured BACKUP_URL.
-                        // Check the most-likely existing filenames first to avoid 404s.
-                        // Also include absolute Pages and raw.githubusercontent fallbacks
-                        // so the app can import even when relative paths are blocked by
-                        // service workers / hosting configuration.
-                        const localCandidates = [
-                            './deploy/catalog_backup_for_pages.json',
-                            './deploy/catalog_backup.json',
-                            './catalog_backup.json',
-                            './deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
-                            './deploy/catalog_backup_lazy.json',
-                            // absolute Pages URLs
-                            'https://amirpowerteam.github.io/galstian-catalog-1/deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
-                            'https://amirpowerteam.github.io/galstian-catalog-1/deploy/catalog_backup.json',
-                            // raw.githubusercontent fallbacks (branch: main)
-                            'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
-                            'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/deploy/catalog_backup.json'
-                        ];
-                        let found = null;
-                        for (const c of localCandidates) {
-                            try {
-                                const r = await fetch(c, { method: 'HEAD', cache: 'no-store' });
-                                if (r && r.ok) { found = c; break; }
-                            } catch (e) { /* ignore */ }
-                        }
-                        if (!found) {
-                            // as a last local attempt try GET on the most likely candidate
-                            try {
-                                const r2 = await fetch('./deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json', { cache: 'no-store' });
-                                if (r2 && r2.ok) found = './deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json';
-                            } catch (e) {}
-                        }
-
-                        const toImport = found || BACKUP_URL;
-                        console.log('Auto-import will attempt:', toImport);
-                        await window.importBackupFromRepo(toImport, { silent: true });
-                        // importBackupFromRepo will reload the page after successful import
-                    } else {
-                        console.warn('importBackupFromRepo not available');
-                    }
-                } catch (e) {
-                    console.warn('Auto-import failed', e);
-                    try { const loader = document.getElementById('auto-import-loading'); if (loader) loader.style.display = 'none'; } catch(e){}
-                }
-            });
-        })();
-    </script>
-    <script>
         // Debug layout helper: enable by adding #debug-layout to the URL
         (function () {
             try {
@@ -7149,26 +6781,6 @@ python -m http.server 8080
             } catch (e) {
                 console.warn('Could not enable layout debug script', e);
             }
-        })();
-    </script>
-    <script>
-        // If running on github.io, proactively unregister any service workers
-        // and clear caches/localStorage keys that may hold old app state.
-        (function disableSWOnPages(){
-            try{
-                if (location.hostname && location.hostname.includes('github.io')){
-                    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations){
-                        navigator.serviceWorker.getRegistrations().then(regs=>{
-                            regs.forEach(r=>{ try{ r.unregister(); }catch(e){} });
-                        }).catch(()=>{});
-                    }
-                    if (window.caches && caches.keys){
-                        caches.keys().then(keys=>{ keys.forEach(k=>caches.delete(k)); }).catch(()=>{});
-                    }
-                    try{ localStorage.removeItem('catalog_backup_version'); localStorage.removeItem('catalog_backup_etag'); localStorage.removeItem('PRELOADED_DATA'); }catch(e){}
-                    console.info('GitHub Pages detected — cleared SW, caches and relevant localStorage keys');
-                }
-            }catch(e){ console.warn('disableSWOnPages error', e); }
         })();
     </script>
 </body>
