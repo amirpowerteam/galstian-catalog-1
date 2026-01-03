@@ -162,229 +162,7 @@
         })();
     </script>
     <script>
-        // Simple Debug View: render basic list of brands from window.PRELOADED_DATA.data.brands
-        (function(){
-            const renderDebug = (brands) => {
-                try {
-                    let panel = document.getElementById('debug-brands-panel');
-                    if (!panel) {
-                        panel = document.createElement('div');
-                        panel.id = 'debug-brands-panel';
-                        panel.style.position = 'fixed';
-                        panel.style.left = '0';
-                        panel.style.right = '0';
-                        panel.style.bottom = '0';
-                        panel.style.maxHeight = '40vh';
-                        panel.style.overflow = 'auto';
-                        panel.style.background = 'rgba(0,0,0,0.85)';
-                        panel.style.color = 'white';
-                        panel.style.zIndex = '10000';
-                        panel.style.padding = '8px';
-                        panel.style.fontSize = '13px';
-                        panel.style.boxShadow = '0 -4px 16px rgba(0,0,0,0.6)';
-                        document.body.appendChild(panel);
-                    }
-                    panel.innerHTML = '<strong>Debug Brands View</strong> — rendering ' + (brands ? brands.length : 0) + ' items<hr/>';
-                    if (!brands || !brands.length) return;
-                    // Render only first 200 to avoid heavy DOM
-                    const max = Math.min(200, brands.length);
-                    for (let i = 0; i < max; i++) {
-                        const b = brands[i];
-                        const name = (b && b.name) ? (b.name.en || b.name.fa || JSON.stringify(b.name)) : ('brand#' + i);
-                        const row = document.createElement('div');
-                        row.style.display = 'flex';
-                        row.style.alignItems = 'center';
-                        row.style.gap = '8px';
-                        row.style.padding = '6px 2px';
-                        row.style.borderBottom = '1px solid rgba(255,255,255,0.06)';
-                        const img = document.createElement('img');
-                        img.style.width = '48px';
-                        img.style.height = '48px';
-                        img.style.objectFit = 'cover';
-                        img.style.borderRadius = '4px';
-                        // first try brand.logo, then brand.image, then brand.items[0].image
-                        let src = null;
-                        try { if (b && typeof b.logo === 'string') src = b.logo; } catch(e){}
-                        try { if (!src && b && typeof b.image === 'string') src = b.image; } catch(e){}
-                        try { if (!src && b && Array.isArray(b.items) && b.items[0] && typeof b.items[0].image === 'string') src = b.items[0].image; } catch(e){}
-                        if (src && typeof src === 'string') {
-                            const s = src.trim();
-                            if (s.startsWith('data:')) img.src = s; else if (/^(?:\/9j\/|iVBOR|R0lGOD)/.test(s)) img.src = 'data:image/png;base64,' + s; else img.src = s;
-                        } else {
-                            img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
-                        }
-                        const txt = document.createElement('div');
-                        txt.textContent = name;
-                        row.appendChild(img);
-                        row.appendChild(txt);
-                        panel.appendChild(row);
-                    }
-                } catch (e) { console.warn('debug render error', e); }
-            };
-
-            const tryRender = () => {
-                try {
-                    // Log top-level keys for diagnosis
-                    try { console.log('Root Keys:', Object.keys(window.PRELOADED_DATA || {})); } catch(e) {}
-
-                    const pd = window.PRELOADED_DATA && window.PRELOADED_DATA.data;
-                    if (pd && Array.isArray(pd.brands)) {
-                        renderDebug(pd.brands);
-                        return;
-                    }
-
-                    // Brute-force search: scan the entire PRELOADED_DATA for any array with length > 2
-                    const bruteFindArray = (root, minLen = 3) => {
-                        try {
-                            if (!root || typeof root !== 'object') return null;
-                            const seen = new WeakSet();
-                            const stack = [{ node: root, path: 'root' }];
-                            while (stack.length) {
-                                const { node, path } = stack.pop();
-                                if (!node || typeof node !== 'object') continue;
-                                if (seen.has(node)) continue;
-                                seen.add(node);
-                                if (Array.isArray(node) && node.length >= minLen) return { path, array: node };
-                                if (Array.isArray(node)) {
-                                    for (let i = 0; i < node.length; i++) stack.push({ node: node[i], path: path + '[' + i + ']' });
-                                } else {
-                                    for (const k of Object.keys(node)) {
-                                        try { stack.push({ node: node[k], path: path + '.' + k }); } catch(e){}
-                                    }
-                                }
-                            }
-                        } catch (e) { console.warn('bruteFindArray error', e); }
-                        return null;
-                    };
-
-                    const rootObj = window.PRELOADED_DATA || {};
-                    const found = bruteFindArray(rootObj, 3);
-                    if (found && found.array) {
-                        // update debug panel with found path and render first 5 items
-                        try {
-                            let panel = document.getElementById('debug-brands-panel');
-                            if (!panel) return;
-                            panel.innerHTML = '<strong>Debug Brands View</strong> — Found data in: ' + found.path + ' (length: ' + found.array.length + ')<hr/>';
-                            const list = document.createElement('div');
-                            list.style.padding = '6px';
-                            const max = Math.min(5, found.array.length);
-                            for (let i = 0; i < max; i++) {
-                                const it = found.array[i];
-                                const r = document.createElement('div');
-                                r.style.padding = '6px';
-                                r.style.borderBottom = '1px solid rgba(255,255,255,0.06)';
-                                // attempt to render brief info
-                                try {
-                                    if (it && typeof it === 'object') {
-                                        const keys = Object.keys(it).slice(0,8);
-                                        r.textContent = `${i}: { ${keys.join(', ')} }`;
-                                    } else {
-                                        r.textContent = `${i}: ${String(it)}`;
-                                    }
-                                } catch(e) { r.textContent = `${i}: (render error)`; }
-                                list.appendChild(r);
-                            }
-                            panel.appendChild(list);
-                        } catch (e) { console.warn('render found array error', e); }
-                        return;
-                    }
-
-                    // Fallback: wait 5s and retry previous logic
-                    setTimeout(() => {
-                        try {
-                            const pd2 = window.PRELOADED_DATA && window.PRELOADED_DATA.data;
-                            if (pd2 && Array.isArray(pd2.brands)) renderDebug(pd2.brands);
-                            else {
-                                // show candidates one level deep
-                                const candidates = [];
-                                const src = (window.PRELOADED_DATA && window.PRELOADED_DATA.data) ? window.PRELOADED_DATA.data : window.PRELOADED_DATA;
-                                if (src && typeof src === 'object') {
-                                    const keys = Object.keys(src).slice(0,200);
-                                    for (const k of keys) {
-                                        try {
-                                            const v = src[k];
-                                            if (Array.isArray(v)) candidates.push({ path: k, length: v.length, sample: v[0] });
-                                            else if (v && typeof v === 'object') {
-                                                const sub = Object.keys(v).slice(0,50);
-                                                for (const sk of sub) {
-                                                    try {
-                                                        const sv = v[sk];
-                                                        if (Array.isArray(sv)) candidates.push({ path: k + '.' + sk, length: sv.length, sample: sv[0] });
-                                                    } catch(e){}
-                                                }
-                                            }
-                                        } catch(e){}
-                                        if (candidates.length >= 50) break;
-                                    }
-                                }
-                                if (candidates.length) {
-                                    let panel = document.getElementById('debug-brands-panel');
-                                    if (!panel) return;
-                                    panel.innerHTML = '<strong>Debug Brands View</strong> — rendering 0 items<hr/>';
-                                    const info = document.createElement('div');
-                                    info.style.padding = '6px';
-                                    info.style.fontSize = '12px';
-                                    info.innerHTML = '<em>Candidate arrays found in PRELOADED_DATA (path : length) — showing up to 50:</em>';
-                                    panel.appendChild(info);
-                                    for (const c of candidates.slice(0,50)) {
-                                        const r = document.createElement('div');
-                                        r.style.padding = '4px 2px';
-                                        r.style.borderBottom = '1px solid rgba(255,255,255,0.04)';
-                                        const title = document.createElement('div');
-                                        title.textContent = c.path + ' : ' + c.length;
-                                        title.style.fontWeight = '600';
-                                        title.style.fontSize = '12px';
-                                        const samp = document.createElement('div');
-                                        try { samp.textContent = c.sample ? Object.keys(c.sample).slice(0,6).join(', ') : ''; } catch(e){ samp.textContent = ''; }
-                                        samp.style.fontSize = '11px';
-                                        samp.style.opacity = '0.9';
-                                        r.appendChild(title);
-                                        r.appendChild(samp);
-                                        panel.appendChild(r);
-                                    }
-                                } else {
-                                    if (window.PRELOADED_DATA && Array.isArray(window.PRELOADED_DATA.brands)) renderDebug(window.PRELOADED_DATA.brands);
-                                    else renderDebug([]);
-                                }
-                            }
-                        } catch (e) { console.warn('retry tryRender error', e); }
-                    }, 5000);
-                } catch (e) { console.warn('tryRender error', e); }
-            };
-
-            // Run asap and also listen for PRELOADED_DATA_PROMISE resolution
-            try { console.log('Debug: PRELOADED_DATA present?', !!window.PRELOADED_DATA, 'PRELOADED_DATA_PROMISE present?', !!window.PRELOADED_DATA_PROMISE); } catch(e){}
-            // If PRELOADED_DATA isn't set, attempt a direct fetch of './data.json' for troubleshooting
-            if (!window.PRELOADED_DATA && !window.PRELOADED_DATA_PROMISE) {
-                (async function(){
-                    try {
-                        console.log('Debug: attempting direct fetch ./data.json for troubleshooting');
-                        const res = await fetch('./data.json', { cache: 'no-store' });
-                        if (res && res.ok) {
-                            try {
-                                const parsed = await res.json();
-                                // If file already has {data,config} use it, otherwise set as data
-                                if (parsed && parsed.data) window.PRELOADED_DATA = parsed;
-                                else window.PRELOADED_DATA = { data: parsed, config: (parsed && parsed.config) ? parsed.config : {} };
-                                console.log('Debug: loaded ./data.json into PRELOADED_DATA (direct fetch)');
-                                tryRender();
-                            } catch (e) { console.warn('Debug: parsing ./data.json failed', e); }
-                        } else {
-                            console.warn('Debug: direct fetch ./data.json failed', res && res.status);
-                        }
-                    } catch (e) { console.warn('Debug: direct fetch ./data.json error', e); }
-                })();
-            }
-            if (window.PRELOADED_DATA_PROMISE && typeof window.PRELOADED_DATA_PROMISE.then === 'function') {
-                try {
-                    window.PRELOADED_DATA_PROMISE.then(() => {
-                        try { console.log('Debug: PRELOADED_DATA_PROMISE resolved'); } catch(e){}
-                        tryRender();
-                    }).catch((err) => { console.warn('Debug: PRELOADED_DATA_PROMISE rejected', err); tryRender(); });
-                } catch(e) { console.warn('Debug: attaching PRELOADED_DATA_PROMISE handler failed', e); }
-            }
-            if (document.readyState === 'complete' || document.readyState === 'interactive') tryRender(); else window.addEventListener('DOMContentLoaded', tryRender);
-        })();
+        // Debug Brands View removed for production: UI now sources brands from PRELOADED_DATA
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
@@ -3051,7 +2829,7 @@ python -m http.server 8080
                 const [selectedBrandId, setSelectedBrandId] = useState(null);
                 const [selectedBrand, setSelectedBrand] = useState(null);
                 // Lazy-render control: only render first N brands and load more on scroll
-                const BATCH_SIZE = 10;
+                const BATCH_SIZE = 12;
                 const [visibleCount, setVisibleCount] = useState(BATCH_SIZE);
                 const brandsContainerRef = useRef(null);
 
@@ -5682,20 +5460,42 @@ python -m http.server 8080
 
                     try {
                         if (newView.type === 'brands') {
-                            const [brands, categories, products] = await Promise.all([
-                                dbGetAll(STORES.BRANDS),
-                                dbGetAll(STORES.CATEGORIES),
-                                dbGetAll(STORES.PRODUCTS)
-                            ]);
-                            const categoriesWithImages = categories.map(cat => ({
-                                ...cat,
-                                productImages: products
-                                    .filter(p => p.categoryId === cat.id && p.images && p.images.length > 0)
-                                    .slice(0, 4)
-                                    .map(p => p.images[0])
-                            }));
-                            setAllBrands(brands);
-                            setAllCategories(categoriesWithImages);
+                            // Prefer PRELOADED_DATA when available to avoid heavy DB reads and prevent UI freezes.
+                            if (window.PRELOADED_DATA && window.PRELOADED_DATA.data && Array.isArray(window.PRELOADED_DATA.data.brands)) {
+                                try {
+                                    const brands = window.PRELOADED_DATA.data.brands || [];
+                                    const products = (window.PRELOADED_DATA.data.products) ? window.PRELOADED_DATA.data.products : [];
+                                    const categories = (window.PRELOADED_DATA.data.categories) ? window.PRELOADED_DATA.data.categories : [];
+                                    const categoriesWithImages = categories.map(cat => ({
+                                        ...cat,
+                                        productImages: products
+                                            .filter(p => p.categoryId === cat.id && p.images && p.images.length > 0)
+                                            .slice(0, 4)
+                                            .map(p => p.images[0])
+                                    }));
+                                    setAllBrands(brands);
+                                    setAllCategories(categoriesWithImages);
+                                    // Remove initial loading overlay as soon as first batch is set
+                                    try { setIsLoading(false); } catch (e) {}
+                                } catch (e) {
+                                    console.warn('refreshView: error using PRELOADED_DATA', e);
+                                }
+                            } else {
+                                const [brands, categories, products] = await Promise.all([
+                                    dbGetAll(STORES.BRANDS),
+                                    dbGetAll(STORES.CATEGORIES),
+                                    dbGetAll(STORES.PRODUCTS)
+                                ]);
+                                const categoriesWithImages = categories.map(cat => ({
+                                    ...cat,
+                                    productImages: products
+                                        .filter(p => p.categoryId === cat.id && p.images && p.images.length > 0)
+                                        .slice(0, 4)
+                                        .map(p => p.images[0])
+                                }));
+                                setAllBrands(brands);
+                                setAllCategories(categoriesWithImages);
+                            }
                         } else if (newView.type === 'categories') {
                             const [categories, products] = await Promise.all([
                                 dbGetByIndex(STORES.CATEGORIES, 'by_brand', newView.brandId),
