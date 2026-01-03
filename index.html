@@ -161,6 +161,91 @@
             } catch (e) { console.warn('Failed to patch setAttribute/src/href guards', e); }
         })();
     </script>
+    <script>
+        // Simple Debug View: render basic list of brands from window.PRELOADED_DATA.data.brands
+        (function(){
+            const renderDebug = (brands) => {
+                try {
+                    let panel = document.getElementById('debug-brands-panel');
+                    if (!panel) {
+                        panel = document.createElement('div');
+                        panel.id = 'debug-brands-panel';
+                        panel.style.position = 'fixed';
+                        panel.style.left = '0';
+                        panel.style.right = '0';
+                        panel.style.bottom = '0';
+                        panel.style.maxHeight = '40vh';
+                        panel.style.overflow = 'auto';
+                        panel.style.background = 'rgba(0,0,0,0.85)';
+                        panel.style.color = 'white';
+                        panel.style.zIndex = '10000';
+                        panel.style.padding = '8px';
+                        panel.style.fontSize = '13px';
+                        panel.style.boxShadow = '0 -4px 16px rgba(0,0,0,0.6)';
+                        document.body.appendChild(panel);
+                    }
+                    panel.innerHTML = '<strong>Debug Brands View</strong> — rendering ' + (brands ? brands.length : 0) + ' items<hr/>';
+                    if (!brands || !brands.length) return;
+                    // Render only first 200 to avoid heavy DOM
+                    const max = Math.min(200, brands.length);
+                    for (let i = 0; i < max; i++) {
+                        const b = brands[i];
+                        const name = (b && b.name) ? (b.name.en || b.name.fa || JSON.stringify(b.name)) : ('brand#' + i);
+                        const row = document.createElement('div');
+                        row.style.display = 'flex';
+                        row.style.alignItems = 'center';
+                        row.style.gap = '8px';
+                        row.style.padding = '6px 2px';
+                        row.style.borderBottom = '1px solid rgba(255,255,255,0.06)';
+                        const img = document.createElement('img');
+                        img.style.width = '48px';
+                        img.style.height = '48px';
+                        img.style.objectFit = 'cover';
+                        img.style.borderRadius = '4px';
+                        // first try brand.logo, then brand.image, then brand.items[0].image
+                        let src = null;
+                        try { if (b && typeof b.logo === 'string') src = b.logo; } catch(e){}
+                        try { if (!src && b && typeof b.image === 'string') src = b.image; } catch(e){}
+                        try { if (!src && b && Array.isArray(b.items) && b.items[0] && typeof b.items[0].image === 'string') src = b.items[0].image; } catch(e){}
+                        if (src && typeof src === 'string') {
+                            const s = src.trim();
+                            if (s.startsWith('data:')) img.src = s; else if (/^(?:\/9j\/|iVBOR|R0lGOD)/.test(s)) img.src = 'data:image/png;base64,' + s; else img.src = s;
+                        } else {
+                            img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+                        }
+                        const txt = document.createElement('div');
+                        txt.textContent = name;
+                        row.appendChild(img);
+                        row.appendChild(txt);
+                        panel.appendChild(row);
+                    }
+                } catch (e) { console.warn('debug render error', e); }
+            };
+
+            const tryRender = () => {
+                try {
+                    const pd = window.PRELOADED_DATA && window.PRELOADED_DATA.data;
+                    if (pd && Array.isArray(pd.brands)) {
+                        renderDebug(pd.brands);
+                    } else {
+                        // wait 5s and retry
+                        setTimeout(() => {
+                            const pd2 = window.PRELOADED_DATA && window.PRELOADED_DATA.data;
+                            if (pd2 && Array.isArray(pd2.brands)) renderDebug(pd2.brands);
+                            else {
+                                // final attempt: try other likely paths
+                                if (window.PRELOADED_DATA && Array.isArray(window.PRELOADED_DATA.brands)) renderDebug(window.PRELOADED_DATA.brands);
+                                else renderDebug([]);
+                            }
+                        }, 5000);
+                    }
+                } catch (e) { console.warn('tryRender error', e); }
+            };
+
+            // Run asap
+            if (document.readyState === 'complete' || document.readyState === 'interactive') tryRender(); else window.addEventListener('DOMContentLoaded', tryRender);
+        })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
     <script>
