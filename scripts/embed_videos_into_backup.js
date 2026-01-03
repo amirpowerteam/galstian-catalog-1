@@ -123,8 +123,8 @@ function findUploadedMatch(basenames) {
   // Fallback: look for common filenames if above didn't find anything
     if (Object.keys(embedded).length === 0) {
       // Try to discover files in uploaded_media recursively by basenames (with or without ext)
-      const heroMatch = findUploadedMatch(['bloc2.mp4','bloc2','boloc2.mp4','boloc2','boloc2']);
-      const welcomeMatch = findUploadedMatch(['bloc3.mp4','bloc3','boloc3.mp4','boloc3','boloc3']);
+      const heroMatch = findUploadedMatch(['bloc2.mp4','bloc2','boloc-2.mp4','boloc-2','boloc2','boloc-2']);
+      const welcomeMatch = findUploadedMatch(['bloc3.mp4','bloc3','boloc-3.mp4','boloc-3','boloc3','boloc-3']);
       if (heroMatch) {
         const e = embedFile(heroMatch);
         if (e) embedded['hero_video'] = e;
@@ -135,11 +135,11 @@ function findUploadedMatch(basenames) {
       }
       // final fallback: try a couple common static candidates at repo root
       if (!embedded['hero_video']) {
-        const fallbackHero = findUploadedMatch(['bloc2','boloc2','boloc2']);
+        const fallbackHero = findUploadedMatch(['bloc2','boloc-2','boloc2']);
         if (fallbackHero) { const e = embedFile(fallbackHero); if (e) embedded['hero_video'] = e; }
       }
       if (!embedded['welcome_video']) {
-        const fallbackWelcome = findUploadedMatch(['bloc3','boloc3','boloc3']);
+        const fallbackWelcome = findUploadedMatch(['bloc3','boloc-3','boloc3']);
         if (fallbackWelcome) { const e = embedFile(fallbackWelcome); if (e) embedded['welcome_video'] = e; }
       }
   }

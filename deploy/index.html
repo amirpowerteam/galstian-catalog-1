@@ -2,33 +2,16 @@
 <html lang="en" dir="ltr" class="dark">
 
 <head>
-        <script>
-            (function(){
-                try{
-                    // Try root `catalog_backup.json` first (used by some deployments),
-                    // fall back to `deploy/catalog_backup.json` which this repo uses.
-                    const tryLoad = async () => {
-                        const candidates = ['catalog_backup.json','deploy/catalog_backup.json'];
-                        for (const c of candidates) {
-                            try {
-                                const r = await fetch(c, { cache: 'no-store' });
-                                if (!r || !r.ok) continue;
-                                const d = await r.json();
-                                window.PRELOADED_DATA = d; console.log('PRELOADED_DATA loaded from', c);
-                                return;
-                            } catch(e) { /* try next */ }
-                        }
-                        console.log('No preload catalog found');
-                    };
-                    tryLoad();
-                }catch(e){}
-            })();
-        </script>
+    <script>
+      (function(){
+        try{
+          fetch('catalog_backup.json').then(r=>{ if(!r.ok) throw new Error('no backup'); return r.json(); }).then(d=>{ window.PRELOADED_DATA = d; console.log('PRELOADED_DATA loaded'); }).catch(()=>{ /* no preload */ });
+        }catch(e){}
+      })();
+    </script>
 
     <meta charset="UTF-8" />
     <title>GALSTIAN Catalog</title>
-    <!-- Base href for GitHub Pages repo hosting to make absolute paths resolve under the repo subpath -->
-    <base href="/galstian-catalog-1/">
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
     <script>
@@ -79,8 +62,8 @@
 
                 const fetchText = async (p) => { try { const r = await fetch(p); if (!r.ok) return { status: r.status }; const t = await r.text(); return { status: r.status, text: t }; } catch (e) { return { error: String(e) }; } };
                 try {
-                    const idx = await fetchText('./index.html');
-                        const swf = await fetchText('./sw.js');
+                    const idx = await fetchText('/index.html');
+                    const swf = await fetchText('/sw.js');
                     report.files['/index.html'] = { status: idx.status || null, length: idx.text ? idx.text.length : 0, text: idx.text || null };
                     report.files['/sw.js'] = { status: swf.status || null, length: swf.text ? swf.text.length : 0, text: swf.text || null };
                     try { if (swf.text) { const m = swf.text.match(/const\s+CACHE_VERSION\s*=\s*['\"]([^'\"]+)['\"]/); if (m) report.env.swCacheVersion = m[1]; } } catch(e){}
@@ -416,8 +399,7 @@ python -m http.server 8080
                     return;
                 }
                 if ('serviceWorker' in navigator) {
-                    if (!(location.hostname && location.hostname.includes('github.io'))) {
-                        navigator.serviceWorker.register('./sw.js').then((reg) => {
+                    navigator.serviceWorker.register('/sw.js').then((reg) => {
                         console.log('ServiceWorker registered:', reg);
                         if (reg.waiting) {
                             console.log('SW waiting — consider update flow');
@@ -434,9 +416,6 @@ python -m http.server 8080
                             });
                         });
                     }).catch((err) => console.error('SW registration failed', err));
-                    } else {
-                        console.log('Skipping Service Worker registration on GitHub Pages to avoid stale cache.');
-                    }
                 }
             } catch (e) {
                 console.warn('SW registration skipped:', e);
@@ -509,13 +488,6 @@ python -m http.server 8080
             }
 
             (async function loadXlsxWithCache() {
-                try {
-                    if (window.IS_FILE_PROTOCOL) {
-                        console.warn('Skipping XLSX load under file:// protocol');
-                        console.info('XLSX features will be unavailable when opened from file:// (use a local HTTP server)');
-                        return;
-                    }
-                } catch (e) { /* ignore */ }
                 // 1) Try inject from localStorage cache
                 const fromCache = await tryInjectFromLocalStorage();
                 if (fromCache) return;
@@ -591,7 +563,7 @@ python -m http.server 8080
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&family=Vazirmatn:wght@400;500;700;900&family=Playfair+Display:wght@700&display=swap"
         rel="stylesheet">
-    <link rel="preload" href="./assets/galstian-logo.png" as="image">
+    <link rel="preload" href="assets/galstian-logo.png" as="image">
     <!-- Inline favicon to avoid automatic /favicon.ico 404 when serving locally -->
     <link rel="icon" href="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23f1f5f9'/%3E%3Ctext x='8' y='11' font-size='9' text-anchor='middle' fill='%233b82f6' font-family='Arial'%3EG%3C/text%3E%3C/svg%3E">
 
@@ -907,89 +879,6 @@ python -m http.server 8080
             Loading Catalog...
         </div>
     </div>
-
-    <!-- Import Backup Button (manual trigger for mobile where preload may fail) -->
-    <button id="import-backup-btn" title="وارد کردن پشتیبان" style="position:fixed;right:14px;bottom:18px;z-index:9999;background:#0ea5e9;color:white;border:none;padding:10px 14px;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,0.12);font-weight:700;">وارد کردن پشتیبان</button>
-
-    <script>
-        (function(){
-            const btn = document.getElementById('import-backup-btn');
-            if (!btn) return;
-
-            const candidates = ['catalog_backup.json','deploy/catalog_backup.json'];
-
-            async function findBackupUrl(){
-                for (const c of candidates){
-                    try {
-                        const r = await fetch(c, { method: 'HEAD', cache: 'no-store' });
-                        if (r && r.ok) return c;
-                    } catch(e){ /* try next */ }
-                }
-                return null;
-            }
-
-            function openOrCreateDB(){
-                return new Promise((resolve, reject) => {
-                    const req = indexedDB.open('PortableCatalogDB_Lazy_V1', 1);
-                    req.onupgradeneeded = (ev) => {
-                        const db = ev.target.result;
-                        if (!db.objectStoreNames.contains('brands')) db.createObjectStore('brands', { keyPath: 'id' });
-                        if (!db.objectStoreNames.contains('categories')) {
-                            const s = db.createObjectStore('categories', { keyPath: 'id' });
-                            try { s.createIndex('by_brand','brandId',{unique:false}); } catch(e){}
-                        }
-                        if (!db.objectStoreNames.contains('products')) {
-                            const p = db.createObjectStore('products', { keyPath: 'id' });
-                            try { p.createIndex('by_category','categoryId',{unique:false}); p.createIndex('by_brand','brandId',{unique:false}); } catch(e){}
-                        }
-                        if (!db.objectStoreNames.contains('config')) db.createObjectStore('config', { keyPath: 'key' });
-                    };
-                    req.onsuccess = () => resolve(req.result);
-                    req.onerror = () => reject(req.error);
-                });
-            }
-
-            async function importBackup(){
-                btn.disabled = true; btn.textContent = 'در حال واردسازی...';
-                try {
-                    const url = await findBackupUrl();
-                    if (!url) { alert('فایل پشتیبان پیدا نشد.'); return; }
-                    const r = await fetch(url, { cache: 'no-store' });
-                    if (!r.ok) throw new Error('Fetch failed: ' + r.status);
-                    const backup = await r.json();
-
-                    const db = await openOrCreateDB();
-                    const tx = db.transaction(['brands','categories','products','config'], 'readwrite');
-
-                    const putIfExists = (storeName, item) => {
-                        try { tx.objectStore(storeName).put(item); } catch(e) { console.warn('put failed', storeName, e); }
-                    };
-
-                    const brands = backup.brands || backup.brands || [];
-                    const categories = backup.categories || [];
-                    const products = backup.products || [];
-                    const config = backup.config || [];
-
-                    brands.forEach(b => putIfExists('brands', b));
-                    categories.forEach(c => putIfExists('categories', c));
-                    products.forEach(p => putIfExists('products', p));
-                    config.forEach(cfg => putIfExists('config', cfg));
-
-                    await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
-                    try { db.close(); } catch(e){}
-                    alert('پشتیبان با موفقیت وارد شد. صفحه دوباره بارگذاری می‌شود.');
-                    location.reload(true);
-                } catch (e) {
-                    console.error('Import backup failed', e);
-                    alert('واردسازی پشتیبان ناموفق بود: ' + (e && e.message ? e.message : String(e)));
-                } finally {
-                    btn.disabled = false; btn.textContent = 'وارد کردن پشتیبان';
-                }
-            }
-
-            btn.addEventListener('click', importBackup, { passive: true });
-        })();
-    </script>
 
     <script type="text/babel">
         /* PRELOADED_DATA_PLACEHOLDER */
@@ -1943,22 +1832,6 @@ python -m http.server 8080
                 );
             }
 
-            // Resolve a possibly-relative URL against the current page directory.
-            // This ensures JSON values like `assets/boloc2.mp4` work both on local
-            // servers and when the site is hosted under a repo subpath on GitHub Pages.
-            function resolveUrl(maybeUrl) {
-                try {
-                    if (!maybeUrl) return maybeUrl;
-                    const s = String(maybeUrl).trim();
-                    if (!s) return null;
-                    if (/^data:/i.test(s)) return s;
-                    if (/^https?:\/\//i.test(s)) return s;
-                    if (s.startsWith('/')) return s; // absolute path already
-                    const base = location.href.split('/').slice(0, -1).join('/') + '/';
-                    return new URL(s, base).toString();
-                } catch (e) { return maybeUrl; }
-            }
-
             function WelcomeSettingsModal({ isOpen, onClose, onSave, addToast }) {
                 if (!isOpen) return null;
 
@@ -1988,12 +1861,12 @@ python -m http.server 8080
                             , dbGet(STORES.CONFIG, 'hero_media_block')
                         ]);
                         setImages(imgConf?.value || []);
-                        setPromoVideo(resolveUrl(promoVidConf?.value || null));
+                        setPromoVideo(promoVidConf?.value || null);
                         setBackgroundType(bgTypeConf?.value || 'photos');
-                        setBackgroundVideo(resolveUrl(bgVidConf?.value || null));
+                        setBackgroundVideo(bgVidConf?.value || null);
                         const heroConf = heroBlockConf?.value || null;
                         setHeroMediaType(heroConf?.mediaType || 'video');
-                        setHeroMediaUrl(resolveUrl(heroConf?.mediaUrl || null));
+                        setHeroMediaUrl(heroConf?.mediaUrl || null);
                         setHeroHeading(heroConf?.heading || '');
                         setHeroBody(heroConf?.body || '');
                         setIsProcessing(false);
@@ -2245,21 +2118,14 @@ python -m http.server 8080
                         // Avoid fetch on file:// — keep default logo if present in DOM or assets
                         return;
                     }
-                    fetch('./assets/galstian-logo.b64').then(async (r) => {
-                        try {
-                            if (!r.ok) throw new Error('galstian-logo.b64 not found: ' + r.status);
-                            const b64 = (await r.text()).trim();
-                            const base64Re = /^[A-Za-z0-9+/=\s]+$/;
-                            if (b64 && b64.length > 50 && base64Re.test(b64) && b64.indexOf('<') === -1) {
-                                const img = document.getElementById('appLogo');
-                                if (img) img.src = 'data:image/png;base64,' + b64;
-                            } else {
-                                console.warn('galstian-logo.b64 appears invalid — skipping data URI set');
-                            }
-                        } catch (e) {
-                            console.warn('Failed to load galstian-logo.b64:', e && e.message ? e.message : e);
+                    fetch('assets/galstian-logo.b64').then(r => r.text()).then(b64 => {
+                        if (b64 && b64.length > 50) {
+                            const img = document.getElementById('appLogo');
+                            if (img) img.src = 'data:image/png;base64,' + b64.trim();
                         }
-                    }).catch(() => {});
+                    }).catch(() => {
+                        // ignore errors
+                    });
                 }, []);
 
                 return (
@@ -2292,7 +2158,7 @@ python -m http.server 8080
                         >
                             <img
                                 id="appLogo"
-                                src="./assets/galstian-logo.png"
+                                src="assets/galstian-logo.png"
                                 alt="GALSTIAN Logo"
                                 className="h-14 sm:h-20 md:h-24 w-auto filter drop-shadow-2xl object-contain"
                                 loading="eager"
@@ -4847,8 +4713,6 @@ python -m http.server 8080
                     addToast("Showroom Mode Activated", "success");
                 }, [addToast]);
 
-                // Release-config integration removed: serving videos same-origin; no incremental remote config applies.
-
                 // Automatic cache-invalidation: check remote backup headers (ETag/Last-Modified)
                 useEffect(() => {
                     let stop = false;
@@ -4898,41 +4762,9 @@ python -m http.server 8080
                             } catch (e) {
                                 console.warn('Remote backup check failed:', e && (e.message || e));
                             }
-                                                }
-                                        // Also check a lightweight `release_config.json` for incremental welcome/hero updates.
-                                        async function checkReleaseConfig(){
-                                            try{
-                                                const head = await fetch('release_config.json', { method: 'HEAD', cache: 'no-store' });
-                                                if (head && head.ok){
-                                                    const et = head.headers.get('etag') || head.headers.get('last-modified');
-                                                    if (et){
-                                                        const stored = localStorage.getItem('release_config_etag');
-                                                        if (stored !== et){
-                                                            localStorage.setItem('release_config_etag', et);
-                                                            console.info('[checkRemote] release_config changed, applying incremental config');
-                                                            try{ await reloadReleaseConfig(); }catch(e){ console.warn('reloadReleaseConfig failed', e); }
-                                                        }
-                                                        return;
-                                                    }
-                                                }
-                                            }catch(e){ /* ignore HEAD errors */ }
-                                            try{
-                                                const resp = await fetch('release_config.json', { cache: 'no-store' });
-                                                if (!resp.ok) return;
-                                                const j = await resp.json();
-                                                const ver = j && j.release_config_version ? j.release_config_version : null;
-                                                if (!ver) return;
-                                                const storedVer = localStorage.getItem('release_config_version');
-                                                if (storedVer !== ver){
-                                                    localStorage.setItem('release_config_version', ver);
-                                                    try{ await reloadReleaseConfig(); }catch(e){ console.warn('reloadReleaseConfig failed', e); }
-                                                }
-                                            }catch(e){ /* ignore */ }
-                                        }
-
-                                        checkRemote();
-                                        checkReleaseConfig();
-                                        const t = setInterval(()=>{ checkRemote(); checkReleaseConfig(); }, 5 * 60 * 1000);
+                        }
+                    checkRemote();
+                    const t = setInterval(checkRemote, 5 * 60 * 1000);
                     // Also trigger checks when page becomes visible/focused or when network returns
                     const onVisible = () => { if (document.visibilityState === 'visible') checkRemote(); };
                     const onFocus = () => { checkRemote(); };
@@ -6521,64 +6353,6 @@ python -m http.server 8080
             } catch (e) {
                 console.warn('Could not enable layout debug script', e);
             }
-        })();
-    </script>
-        <script>
-            // Immediate in-browser release-config writer (runs as soon as index.html loads)
-            (async function(){
-                try{
-                    const resp = await fetch('release_config.json', { cache: 'no-store' });
-                    if (!resp.ok) return;
-                    const j = await resp.json();
-                    if (!j) return;
-                    const DB = 'PortableCatalogDB_Lazy_V1';
-                    const openDB = (name, version=1) => new Promise((res, rej)=>{
-                        const rq = indexedDB.open(name, version);
-                        rq.onsuccess = ()=>res(rq.result);
-                        rq.onerror = ()=>rej(rq.error);
-                        rq.onupgradeneeded = ()=>res(rq.result);
-                    });
-                    const db = await openDB(DB);
-                    const tx = db.transaction('config','readwrite');
-                    const store = tx.objectStore('config');
-                    const get = (k)=> new Promise(res=>{ const r=store.get(k); r.onsuccess=()=>res(r.result); r.onerror=()=>res(null); });
-                    const put = (k,v)=> new Promise(res=>{ try{ const p = store.put({ key:k, value:v }); p.onsuccess=()=>res(true); p.onerror=()=>res(false);}catch(e){res(false);} });
-
-                    try{ if (j.welcome_video) await put('welcome_video', j.welcome_video); } catch(e){}
-                    try{ if (j.welcome_background_video) await put('welcome_background_video', j.welcome_background_video); } catch(e){}
-                    try{
-                        if (j.hero_media_block) {
-                            const existing = await get('hero_media_block');
-                            const cur = existing && existing.value ? existing.value : {};
-                            const merged = Object.assign({}, cur, j.hero_media_block);
-                            await put('hero_media_block', merged);
-                        }
-                    }catch(e){}
-
-                    try{ tx.commit && tx.commit(); }catch(e){}
-                    try{ db.close(); }catch(e){}
-                }catch(e){ /* ignore */ }
-            })();
-        </script>
-        <!-- `local_server_logic.js` removed per request: site already serves same-origin videos -->
-    <script>
-        // If running on github.io, proactively unregister any service workers
-        // and clear caches/localStorage keys that may hold old app state.
-        (function disableSWOnPages(){
-            try{
-                if (location.hostname && location.hostname.includes('github.io')){
-                    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations){
-                        navigator.serviceWorker.getRegistrations().then(regs=>{
-                            regs.forEach(r=>{ try{ r.unregister(); }catch(e){} });
-                        }).catch(()=>{});
-                    }
-                    if (window.caches && caches.keys){
-                        caches.keys().then(keys=>{ keys.forEach(k=>caches.delete(k)); }).catch(()=>{});
-                    }
-                    try{ localStorage.removeItem('catalog_backup_version'); localStorage.removeItem('catalog_backup_etag'); localStorage.removeItem('PRELOADED_DATA'); }catch(e){}
-                    console.info('GitHub Pages detected — cleared SW, caches and relevant localStorage keys');
-                }
-            }catch(e){ console.warn('disableSWOnPages error', e); }
         })();
     </script>
 </body>

@@ -94,8 +94,8 @@
                                     const repoBase = repoParts.length ? repoParts[0] : null;
                                     // If value is like '/uploaded_media/...' or '/deploy/...' and not already prefixed with repoBase,
                                     // rewrite to include the repo base so it resolves under /<repo>/uploaded_media/... on GitHub Pages.
-                                    if (repoBase && v.startsWith('/') && !v.startsWith('/' + repoBase) && (/^\/(uploaded_media|deploy|assets)\//.test(v))) {
-                                        const newV = '/' + repoBase + (v.startsWith('/') ? v : ('/' + v));
+                                    if (typeof v === 'string' && v.startsWith('/') && (/^\/(uploaded_media|deploy|assets)\//.test(v))) {
+                                        const newV = './' + v.replace(/^\/+/, '');
                                         try { return origSet.call(this, newV); } catch(e) { /* fallback */ }
                                     }
                                 }
@@ -120,10 +120,8 @@
                             if (sv.indexOf('<<REDACTED') !== -1) return;
                             if (sv[0] === '<') return;
                             try {
-                                const repoParts = (location.pathname || '').split('/').filter(Boolean);
-                                const repoBase = repoParts.length ? repoParts[0] : null;
-                                if (repoBase && sv.startsWith('/') && !sv.startsWith('/' + repoBase) && (/^\/(uploaded_media|deploy|assets)\//.test(sv))) {
-                                    value = '/' + repoBase + (sv.startsWith('/') ? sv : ('/' + sv));
+                                if (sv.startsWith('/') && (/^\/(uploaded_media|deploy|assets)\//.test(sv))) {
+                                    value = './' + sv.replace(/^\/+/, '');
                                 }
                             } catch(e) {}
                         }
@@ -1014,19 +1012,37 @@ python -m http.server 8080
                         const res = await fetch(url, { cache: 'no-store' });
                         if (!res.ok) throw new Error('status ' + res.status);
                         return await res.json();
-                    }catch(e){ console.warn('fetchJson failed', url, e); return null; }
+                    }catch(e){
+                        console.warn('fetchJson failed', url, e);
+                        // If this was a local path attempt, try raw.githubusercontent fallback (unless file://)
+                        try {
+                            if (window.IS_FILE_PROTOCOL) return null;
+                            const s = (url || '').toString().trim();
+                            if (!s) return null;
+                            // only attempt for repo-local paths (relative or leading slash) not for full http URLs
+                            if (/^https?:\/\//i.test(s)) return null;
+                            // derive repo raw path
+                            const rawBase = 'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/';
+                            const candidate = s.replace(/^\.\//, '').replace(/^\//, '');
+                            const rawUrl = rawBase + candidate;
+                            try {
+                                const r2 = await fetch(rawUrl, { cache: 'no-store' });
+                                if (!r2.ok) throw new Error('status ' + r2.status);
+                                return await r2.json();
+                            } catch (eraw) {
+                                console.warn('raw fallback failed for', rawUrl, eraw);
+                                return null;
+                            }
+                        } catch (ee) { return null; }
+                    }
                 }
 
                 let dataObj = null;
                 // Try common backup filenames first (catalog_backup.json at repo root or deploy folder)
                 const backupCandidates = [
-                    'catalog_backup.json',
-                    'deploy/catalog_backup.json',
-                    'deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
-                    // Fallback to raw.githubusercontent URLs so GitHub Pages can load the packed backup
-                    'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/catalog_backup.json',
-                    'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/deploy/catalog_backup.json',
-                    'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json'
+                    './catalog_backup.json',
+                    './deploy/catalog_backup.json',
+                    './deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json'
                 ];
                 for (const b of backupCandidates) {
                     try {
@@ -1088,7 +1104,8 @@ python -m http.server 8080
                             if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith('data:') || trimmed.startsWith('blob:')) return trimmed;
                             // Only normalize known repo-local media paths to relative (remove leading slash)
                             if (/^\/(uploaded_media|deploy|assets)\//.test(trimmed)) {
-                                return trimmed.replace(/^\//, '');
+                                // convert repo-root paths to explicit relative paths so they resolve under the repo
+                                return './' + trimmed.replace(/^\/+/, '');
                             }
                             return trimmed;
                         };
@@ -5336,14 +5353,14 @@ python -m http.server 8080
                             try {
                                 if (!videoConfig?.value) {
                                     const candidates = [
-                                        '/uploaded_media/boloc3/boloc3.mp4',
-                                        '/uploaded_media/boloc3.mp4',
-                                        '/uploaded_media/boloc-3.mp4',
-                                        '/uploaded_media/bloc3.mp4'
+                                        'uploaded_media/boloc3/boloc3.mp4',
+                                        'uploaded_media/boloc3.mp4',
+                                        'uploaded_media/boloc-3.mp4',
+                                        'uploaded_media/bloc3.mp4'
                                     ];
                                     for (const c of candidates) {
                                         try {
-                                            const full = c.startsWith('http') ? c : window.location.origin + c;
+                                            const full = c.startsWith('http') ? c : (window.location.origin + '/' + c.replace(/^\/+/, ''));
                                             const res = await fetch(full, { method: 'HEAD', cache: 'no-store' });
                                             if (res && res.ok) {
                                                 setWelcomeVideo(c);
@@ -5367,12 +5384,12 @@ python -m http.server 8080
                             const existingHero = heroBlockConfig?.value || null;
                             if (!existingHero || !existingHero.mediaUrl) {
                                 const tryUrls = [
-                                    '/uploaded_media/boloc2/boloc2.mp4',
-                                    '/uploaded_media/boloc3/boloc3.mp4',
-                                    '/uploaded_media/boloc-2.mp4',
-                                    '/uploaded_media/boloc-3.mp4',
-                                    '/uploaded_media/bloc2.mp4',
-                                    '/uploaded_media/bloc3.mp4'
+                                    './uploaded_media/boloc2/boloc2.mp4',
+                                    './uploaded_media/boloc3/boloc3.mp4',
+                                    './uploaded_media/boloc-2.mp4',
+                                    './uploaded_media/boloc-3.mp4',
+                                    './uploaded_media/bloc2.mp4',
+                                    './uploaded_media/bloc3.mp4'
                                 ];
                                 let found = null;
                                 for (const u of tryUrls) {
@@ -5403,8 +5420,8 @@ python -m http.server 8080
                             if (isHeroPointingTo3 && isWelcomePointingTo2) {
                                 // Preserve existing hero heading/body when fixing swap
                                 const existing = heroBlockConfig?.value || {};
-                                const newHero = Object.assign({}, existing, { mediaType: 'video', mediaUrl: '/uploaded_media/bloc2.mp4' });
-                                const newWelcome = '/uploaded_media/bloc3.mp4';
+                                const newHero = Object.assign({}, existing, { mediaType: 'video', mediaUrl: './uploaded_media/bloc2.mp4' });
+                                const newWelcome = './uploaded_media/bloc3.mp4';
                                 try { await dbPut(STORES.CONFIG, { key: 'hero_media_block', value: newHero }); } catch (e) { console.warn('Failed writing fixed hero_media_block', e); }
                                 try { await dbPut(STORES.CONFIG, { key: 'welcome_video', value: newWelcome }); } catch (e) { console.warn('Failed writing fixed welcome_video', e); }
                                 setHeroMediaBlock(newHero);
@@ -6078,12 +6095,12 @@ python -m http.server 8080
                             // If heroUrl is not set, try common uploaded_media filenames so export can reference local video
                             if (!heroUrl) {
                                 const candidates = [
-                                    '/uploaded_media/boloc2/boloc2.mp4',
-                                    '/uploaded_media/boloc3/boloc3.mp4',
-                                    '/uploaded_media/boloc-2.mp4',
-                                    '/uploaded_media/boloc-3.mp4',
-                                    '/uploaded_media/bloc2.mp4',
-                                    '/uploaded_media/bloc3.mp4'
+                                    './uploaded_media/boloc2/boloc2.mp4',
+                                    './uploaded_media/boloc3/boloc3.mp4',
+                                    './uploaded_media/boloc-2.mp4',
+                                    './uploaded_media/boloc-3.mp4',
+                                    './uploaded_media/bloc2.mp4',
+                                    './uploaded_media/bloc3.mp4'
                                 ];
                                 const tryHead = async (u) => {
                                     try {
