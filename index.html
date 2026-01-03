@@ -3050,6 +3050,15 @@ python -m http.server 8080
             function HomePageContent({ brands, categories, setView, isManagementMode, openModal, openConfirm, handleDelete, lang, welcomeVideo }) {
                 const [selectedBrandId, setSelectedBrandId] = useState(null);
                 const [selectedBrand, setSelectedBrand] = useState(null);
+                // Lazy-render control: only render first N brands and load more on scroll
+                const BATCH_SIZE = 10;
+                const [visibleCount, setVisibleCount] = useState(BATCH_SIZE);
+                const brandsContainerRef = useRef(null);
+
+                const visibleBrands = useMemo(() => {
+                    if (!Array.isArray(brands)) return [];
+                    return brands.slice(0, visibleCount);
+                }, [brands, visibleCount]);
                 const categoriesContainerRef = useRef(null);
                 const brandInfoRef = useRef(null);
 
@@ -3084,13 +3093,46 @@ python -m http.server 8080
                     }, 100);
                 };
 
+                // Infinite-style lazy loading: increase visibleCount when near bottom
+                useEffect(() => {
+                    const el = brandsContainerRef.current || window;
+                    let ticking = false;
+                    const onScroll = () => {
+                        if (ticking) return;
+                        ticking = true;
+                        requestAnimationFrame(() => {
+                            try {
+                                let atBottom = false;
+                                if (brandsContainerRef.current) {
+                                    const rect = brandsContainerRef.current.getBoundingClientRect();
+                                    atBottom = (rect.bottom - window.innerHeight) < 300; // near bottom
+                                } else {
+                                    atBottom = (window.innerHeight + window.scrollY) >= (document.body.offsetHeight - 400);
+                                }
+                                if (atBottom && visibleCount < (brands ? brands.length : 0)) {
+                                    setVisibleCount((v) => Math.min((brands ? brands.length : 0), v + BATCH_SIZE));
+                                }
+                            } catch (e) { /* ignore */ }
+                            ticking = false;
+                        });
+                    };
+                    try {
+                        (brandsContainerRef.current || window).addEventListener('scroll', onScroll, { passive: true });
+                        window.addEventListener('scroll', onScroll, { passive: true });
+                    } catch (e) {}
+                    return () => {
+                        try { (brandsContainerRef.current || window).removeEventListener('scroll', onScroll); } catch(e){}
+                        try { window.removeEventListener('scroll', onScroll); } catch(e){}
+                    };
+                }, [visibleCount, brands]);
+
                 return (
                     <>
                         <WelcomeVideoSection videoSrc={welcomeVideo} />
                         <div className="py-12">
                             <div className="max-w-screen-xl mx-auto px-4 sm:px-6 lg:px-8">
-                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                                    {brands.map((brand, index) => (
+                                <div ref={brandsContainerRef} className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                                    {visibleBrands.map((brand, index) => (
                                         <AnimatedWrapper key={brand.id} index={index}>
                                             <div
                                                 onClick={() => handleBrandClick(brand.id)}
@@ -3098,7 +3140,7 @@ python -m http.server 8080
                                             >
                                                 <div className="absolute inset-0 bg-white dark:bg-slate-800 flex items-center justify-center p-4">
                                                     {brand.logo ? (
-                                                        <img src={brand.logo} alt={getLocalizedTitle(brand.name, 'en')} className="max-w-full max-h-full object-contain transition-transform duration-300 group-hover:scale-105" />
+                                                        <img loading="lazy" src={brand.logo} alt={getLocalizedTitle(brand.name, 'en')} className="max-w-full max-h-full object-contain transition-transform duration-300 group-hover:scale-105" />
                                                     ) : (
                                                         <BuildingStorefrontIcon className="w-1/2 h-1/2 text-slate-400 dark:text-slate-500 transition-transform duration-300 group-hover:scale-105" />
                                                     )}
@@ -3132,6 +3174,10 @@ python -m http.server 8080
                                             </div>
                                         </AnimatedWrapper>
                                     ))}
+                                    {/* Load-more indicator */}
+                                    {visibleCount < (brands ? brands.length : 0) && (
+                                        <div className="col-span-full text-center py-4 text-sm text-slate-500">Scroll to load more brands…</div>
+                                    )}
                                     {isManagementMode && (
                                         <AnimatedWrapper index={brands.length}>
                                             <div
@@ -5840,36 +5886,51 @@ python -m http.server 8080
                         setIsManagementMode(storedMode);
 
                         if (window.PRELOADED_DATA) {
-                            setLoadingMessage("Setting up catalog for the first time...");
-                            const { data, config } = window.PRELOADED_DATA;
-                            if (!data || !config) {
-                                throw new Error("Preloaded data is in an invalid format.");
-                            }
-
-                            await Promise.all(Object.values(STORES).map(dbClear));
-
-                            await Promise.all([
-                                ...data.brands.map(item => dbPut(STORES.BRANDS, item)),
-                                ...data.categories.map(item => dbPut(STORES.CATEGORIES, item)),
-                                ...data.products.map(item => dbPut(STORES.PRODUCTS, item)),
-                                dbPut(STORES.CONFIG, { key: 'app_title', value: config.app_title }),
-                                dbPut(STORES.CONFIG, { key: 'welcome_images', value: config.welcome_images }),
-                                dbPut(STORES.CONFIG, { key: 'welcome_video', value: config.welcome_video }),
-                                dbPut(STORES.CONFIG, { key: 'welcome_background_type', value: config.welcome_background_type }),
-                                dbPut(STORES.CONFIG, { key: 'welcome_background_video', value: config.welcome_background_video }),
-                            ]);
-
-                            localStorage.setItem('catalog_preloaded_v1', 'true');
-                            setLoadingMessage(TRANSLATIONS.loading);
-
-                            // Immediately render the catalog from the preloaded backup so
-                            // the UI is not blocked by optional 'lazy' files or missing media.
+                            // Use PRELOADED_DATA directly for initial render to avoid
+                            // processing the entire 50+MB backup into IndexedDB synchronously.
                             try {
-                                await refreshView({ type: 'brands' });
+                                setLoadingMessage("Setting up catalog for the first time...");
+                                const pd = window.PRELOADED_DATA;
+                                const data = pd && pd.data ? pd.data : (pd || {}).data || {};
+                                const config = pd && pd.config ? pd.config : (pd || {}).config || {};
+
+                                // Apply light normalization already done earlier, now populate UI state
+                                const brandsFromPreload = Array.isArray(data.brands) ? data.brands : [];
+                                const categoriesFromPreload = Array.isArray(data.categories) ? data.categories : [];
+
+                                // Set UI state directly from preloaded data (lazy rendering will limit DOM cost)
+                                try { setAllBrands(brandsFromPreload); } catch (e) { console.warn('setAllBrands failed', e); }
+                                try { setAllCategories(categoriesFromPreload); } catch (e) { console.warn('setAllCategories failed', e); }
+                                try { setWelcomeImages(config.welcome_images || []); } catch(e){}
+                                try { setWelcomeVideo(config.welcome_video || null); } catch(e){}
+                                try { setWelcomeBackgroundType(config.welcome_background_type || 'photos'); } catch(e){}
+                                try { setWelcomeBackgroundVideo(config.welcome_background_video || null); } catch(e){}
+
+                                // Do not eagerly write all records to IndexedDB here; instead,
+                                // optionally schedule a background import in small chunks to avoid blocking.
+                                (async function importInBackground(items){
+                                    if (!Array.isArray(items) || items.length === 0) return;
+                                    try {
+                                        const chunkSize = 200;
+                                        for (let i = 0; i < items.length; i += chunkSize) {
+                                            const chunk = items.slice(i, i + chunkSize);
+                                            await Promise.all(chunk.map(item => dbPut(STORES.BRANDS, item)).map(p => p.catch(() => null)));
+                                            // small yield to event loop
+                                            await new Promise(r => setTimeout(r, 50));
+                                        }
+                                        console.info('Background import of brands completed (best-effort)');
+                                    } catch (err) { console.warn('Background import failed', err); }
+                                })(brandsFromPreload).catch(() => {});
+
+                                // mark preload flag so future loads are faster (optional)
+                                try { localStorage.setItem('catalog_preloaded_v1', 'true'); } catch(e){}
+
+                                // Immediately allow UI to render first batch and remove loading overlay
+                                try { setLoadingMessage(TRANSLATIONS.loading); } catch(e){}
+                                try { setIsLoading(false); } catch(e){}
                             } catch (e) {
-                                console.warn('Immediate refreshView failed', e);
+                                console.warn('PRELOADED_DATA handling failed', e);
                             }
-                            try { setIsLoading(false); } catch(e) {}
                         }
 
                         await runMigration();
