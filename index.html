@@ -1114,11 +1114,42 @@ python -m http.server 8080
 
                     try { normalizePaths(dataObj); } catch(e) { console.warn('normalizePaths failed', e); }
 
-                    const data = {
-                        brands: dataObj.brands || [],
-                        categories: dataObj.categories || [],
-                        products: dataObj.products || []
-                    };
+                    // Robustly detect brands/categories/products arrays inside the incoming backup
+                    let products = Array.isArray(dataObj.products) ? dataObj.products.slice() : [];
+                    let brands = Array.isArray(dataObj.brands) ? dataObj.brands.slice() : [];
+                    let categories = Array.isArray(dataObj.categories) ? dataObj.categories.slice() : [];
+
+                    const looksLikeProducts = (arr) => Array.isArray(arr) && arr.length > 0 && typeof arr[0] === 'object' && (('name' in arr[0]) || ('description' in arr[0]) || ('price' in arr[0]) || ('images' in arr[0]) || ('id' in arr[0]));
+                    const looksLikeBrands = (arr) => Array.isArray(arr) && arr.length > 0 && typeof arr[0] === 'object' && (('logo' in arr[0]) || ('brand' in arr[0]) || ('id' in arr[0] && String(arr[0].id).toLowerCase().includes('brand')) || (arr[0].name && (typeof arr[0].name === 'string' || typeof arr[0].name === 'object')));
+                    const looksLikeCategories = (arr) => Array.isArray(arr) && arr.length > 0 && typeof arr[0] === 'object' && (('category' in arr[0]) || ('id' in arr[0] && String(arr[0].id).toLowerCase().includes('cat')) || (arr[0].name && (typeof arr[0].name === 'string' || typeof arr[0].name === 'object')));
+
+                    // Scan top-level keys for candidate arrays
+                    for (const k of Object.keys(dataObj || {})) {
+                        try {
+                            const v = dataObj[k];
+                            if (!Array.isArray(v) || v.length === 0 || typeof v[0] !== 'object') continue;
+                            if (!products.length && looksLikeProducts(v)) { products = v; console.info('Detected products in key:', k); continue; }
+                            if (!brands.length && looksLikeBrands(v)) { brands = v; console.info('Detected brands in key:', k); continue; }
+                            if (!categories.length && looksLikeCategories(v)) { categories = v; console.info('Detected categories in key:', k); continue; }
+                        } catch (e) { /* ignore */ }
+                    }
+
+                    // If still not found, search one level deeper inside top-level objects
+                    if (!products.length) {
+                        for (const k of Object.keys(dataObj || {})) {
+                            const v = dataObj[k];
+                            if (!v || typeof v !== 'object') continue;
+                            for (const k2 of Object.keys(v)) {
+                                try {
+                                    const v2 = v[k2];
+                                    if (looksLikeProducts(v2)) { products = v2; console.info('Detected products in nested key:', k, k2); break; }
+                                } catch (e) { /* ignore */ }
+                            }
+                            if (products.length) break;
+                        }
+                    }
+
+                    const data = { brands: brands || [], categories: categories || [], products: products || [] };
                     const config = dataObj.config || {
                         app_title: dataObj.app_title || 'GALSTIAN',
                         welcome_images: dataObj.welcome_images || [],
@@ -1126,23 +1157,11 @@ python -m http.server 8080
                         welcome_background_type: dataObj.welcome_background_type || 'image',
                         welcome_background_video: dataObj.welcome_background_video || null
                     };
+
+                    // Expose both the raw object and the normalized data for debugging
                     window.PRELOADED_DATA = { data, config };
-                    // If the incoming JSON shape differs from expectations, log a concise preview
-                    try {
-                        const shapeProblems = (!dataObj || typeof dataObj !== 'object') || !Array.isArray(dataObj.products) || !Array.isArray(dataObj.brands) || !Array.isArray(dataObj.categories);
-                        if (shapeProblems) {
-                            const preview = {};
-                            if (dataObj && typeof dataObj === 'object') {
-                                for (const k of Object.keys(dataObj)) {
-                                    try {
-                                        const v = dataObj[k];
-                                        preview[k] = Array.isArray(v) ? `array(${v.length})` : typeof v;
-                                    } catch (e) { preview[k] = typeof dataObj[k]; }
-                                }
-                            }
-                            console.warn('PRELOADED_DATA received with unexpected shape. Top-level preview:', preview);
-                        }
-                    } catch (e) { console.warn('PRELOADED_DATA preview failed', e); }
+                    try { console.info('Full PRELOADED_DATA object:'); console.dir(dataObj); } catch (e) { console.warn('console.dir(dataObj) failed', e); }
+                    try { console.info('Normalized data used by app:'); console.dir(data); } catch (e) { /* ignore */ }
                     try {
                         // If running on GitHub Pages, clear the 'catalog_preloaded_v1' flag
                         // to force a fresh import from the deployed backup (helpful after deploys).
@@ -1162,8 +1181,6 @@ python -m http.server 8080
         })();
         window.onload = async () => {
             const { useState, useEffect, useCallback, useMemo, useRef } = React;
-            // When true, skip optional network probes for large 'mp4' or lazy backup files
-            const SKIP_MEDIA_PROBES = true;
 
             // --- CONSTANTS ---
             // This placeholder is now only for the very first run or if DB fails.
@@ -5374,9 +5391,8 @@ python -m http.server 8080
                         ]);
                         setWelcomeImages(imagesConfig?.value || []);
                         setWelcomeVideo(videoConfig?.value || null);
-                        // If welcome video is not set, probe common uploaded_media locations (can be skipped)
-                        if (!SKIP_MEDIA_PROBES) {
-                            (async () => {
+                        // If welcome video is not set, probe common uploaded_media locations
+                        (async () => {
                                 try {
                                     if (!videoConfig?.value) {
                                         const candidates = [
@@ -5400,9 +5416,6 @@ python -m http.server 8080
                                     }
                                 } catch (e) { /* ignore */ }
                             })();
-                        } else {
-                            console.info('SKIP_MEDIA_PROBES enabled — skipping welcome video probes');
-                        }
                         setWelcomeBackgroundType(bgTypeConfig?.value || 'photos');
                         setWelcomeBackgroundVideo(bgVideoConfig?.value || null);
                         setFooterSettings(footerConfig?.value || null);
@@ -5410,39 +5423,35 @@ python -m http.server 8080
                         // Non-invasive: only seeds the config if hero block is empty. Tries canonical
                         // filenames first, falls back to common mistyped names present in the repo.
                         let seededHero = null;
-                        if (!SKIP_MEDIA_PROBES) {
-                            try {
-                                const existingHero = heroBlockConfig?.value || null;
-                                if (!existingHero || !existingHero.mediaUrl) {
-                                    const tryUrls = [
-                                        './uploaded_media/boloc2/boloc2.mp4',
-                                        './uploaded_media/boloc3/boloc3.mp4',
-                                        './uploaded_media/boloc-2.mp4',
-                                        './uploaded_media/boloc-3.mp4',
-                                        './uploaded_media/bloc2.mp4',
-                                        './uploaded_media/bloc3.mp4'
-                                    ];
-                                    let found = null;
-                                    for (const u of tryUrls) {
-                                        try {
-                                            const res = await fetch(u, { method: 'HEAD' });
-                                            if (res && res.ok) { found = u; break; }
-                                        } catch (e) {
-                                            // ignore network errors for probing
-                                        }
-                                    }
-                                    if (found) {
-                                        // Preserve any existing heading/body when seeding the mediaUrl
-                                        const existing = existingHero || {};
-                                        seededHero = Object.assign({}, existing, { mediaType: 'video', mediaUrl: found });
-                                        try { await dbPut(STORES.CONFIG, { key: 'hero_media_block', value: seededHero }); } catch (e) { console.warn('Failed to write seeded hero_media_block', e); }
+                        try {
+                            const existingHero = heroBlockConfig?.value || null;
+                            if (!existingHero || !existingHero.mediaUrl) {
+                                const tryUrls = [
+                                    './uploaded_media/boloc2/boloc2.mp4',
+                                    './uploaded_media/boloc3/boloc3.mp4',
+                                    './uploaded_media/boloc-2.mp4',
+                                    './uploaded_media/boloc-3.mp4',
+                                    './uploaded_media/bloc2.mp4',
+                                    './uploaded_media/bloc3.mp4'
+                                ];
+                                let found = null;
+                                for (const u of tryUrls) {
+                                    try {
+                                        const res = await fetch(u, { method: 'HEAD' });
+                                        if (res && res.ok) { found = u; break; }
+                                    } catch (e) {
+                                        // ignore network errors for probing
                                     }
                                 }
-                            } catch (e) {
-                                console.warn('Hero seed probe failed', e);
+                                if (found) {
+                                    // Preserve any existing heading/body when seeding the mediaUrl
+                                    const existing = existingHero || {};
+                                    seededHero = Object.assign({}, existing, { mediaType: 'video', mediaUrl: found });
+                                    try { await dbPut(STORES.CONFIG, { key: 'hero_media_block', value: seededHero }); } catch (e) { console.warn('Failed to write seeded hero_media_block', e); }
+                                }
                             }
-                        } else {
-                            console.info('SKIP_MEDIA_PROBES enabled — skipping hero media probes');
+                        } catch (e) {
+                            console.warn('Hero seed probe failed', e);
                         }
                         setHeroMediaBlock(heroBlockConfig?.value || seededHero || null);
                         // If hero and welcome videos are swapped in the DB, fix them:
@@ -5501,9 +5510,6 @@ python -m http.server 8080
                                         setHeroMediaBlock(merged);
                                         console.log('Restored hero heading/body from local backup');
                                     }
-                                } else {
-                                    console.info('SKIP_MEDIA_PROBES enabled — skipping backup probes for hero text restore');
-                                }
                             }
                         } catch (e) {
                             console.warn('Hero restore from backup failed', e);
@@ -5513,26 +5519,7 @@ python -m http.server 8080
                         try {
                             const postProducts = await dbGetAll(STORES.PRODUCTS);
                             if (!postProducts || postProducts.length === 0) {
-                                console.warn('Initialization complete but product list is empty. Showing on-screen debug indicator.');
-                                try {
-                                    const existing = document.getElementById('debug-empty-products');
-                                    if (!existing) {
-                                        const el = document.createElement('div');
-                                        el.id = 'debug-empty-products';
-                                        el.style.position = 'fixed';
-                                        el.style.right = '12px';
-                                        el.style.top = '12px';
-                                        el.style.zIndex = 99999;
-                                        el.style.padding = '10px 14px';
-                                        el.style.background = 'rgba(220,38,38,0.95)';
-                                        el.style.color = 'white';
-                                        el.style.borderRadius = '6px';
-                                        el.style.fontFamily = 'sans-serif';
-                                        el.style.fontSize = '14px';
-                                        el.innerText = 'Debug: product list empty after loading';
-                                        document.body.appendChild(el);
-                                    }
-                                } catch (ee) { console.warn('Failed to inject debug UI', ee); }
+                                console.warn('Initialization complete but product list is empty.');
                             }
                         } catch (e) { console.warn('Failed to inspect products after init', e); }
 
