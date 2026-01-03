@@ -224,16 +224,78 @@
 
             const tryRender = () => {
                 try {
+                    // Log top-level keys for diagnosis
+                    try { console.log('Root Keys:', Object.keys(window.PRELOADED_DATA || {})); } catch(e) {}
+
                     const pd = window.PRELOADED_DATA && window.PRELOADED_DATA.data;
                     if (pd && Array.isArray(pd.brands)) {
                         renderDebug(pd.brands);
-                    } else {
-                        // wait 5s and retry
-                        setTimeout(() => {
+                        return;
+                    }
+
+                    // Brute-force search: scan the entire PRELOADED_DATA for any array with length > 2
+                    const bruteFindArray = (root, minLen = 3) => {
+                        try {
+                            if (!root || typeof root !== 'object') return null;
+                            const seen = new WeakSet();
+                            const stack = [{ node: root, path: 'root' }];
+                            while (stack.length) {
+                                const { node, path } = stack.pop();
+                                if (!node || typeof node !== 'object') continue;
+                                if (seen.has(node)) continue;
+                                seen.add(node);
+                                if (Array.isArray(node) && node.length >= minLen) return { path, array: node };
+                                if (Array.isArray(node)) {
+                                    for (let i = 0; i < node.length; i++) stack.push({ node: node[i], path: path + '[' + i + ']' });
+                                } else {
+                                    for (const k of Object.keys(node)) {
+                                        try { stack.push({ node: node[k], path: path + '.' + k }); } catch(e){}
+                                    }
+                                }
+                            }
+                        } catch (e) { console.warn('bruteFindArray error', e); }
+                        return null;
+                    };
+
+                    const rootObj = window.PRELOADED_DATA || {};
+                    const found = bruteFindArray(rootObj, 3);
+                    if (found && found.array) {
+                        // update debug panel with found path and render first 5 items
+                        try {
+                            let panel = document.getElementById('debug-brands-panel');
+                            if (!panel) return;
+                            panel.innerHTML = '<strong>Debug Brands View</strong> — Found data in: ' + found.path + ' (length: ' + found.array.length + ')<hr/>';
+                            const list = document.createElement('div');
+                            list.style.padding = '6px';
+                            const max = Math.min(5, found.array.length);
+                            for (let i = 0; i < max; i++) {
+                                const it = found.array[i];
+                                const r = document.createElement('div');
+                                r.style.padding = '6px';
+                                r.style.borderBottom = '1px solid rgba(255,255,255,0.06)';
+                                // attempt to render brief info
+                                try {
+                                    if (it && typeof it === 'object') {
+                                        const keys = Object.keys(it).slice(0,8);
+                                        r.textContent = `${i}: { ${keys.join(', ')} }`;
+                                    } else {
+                                        r.textContent = `${i}: ${String(it)}`;
+                                    }
+                                } catch(e) { r.textContent = `${i}: (render error)`; }
+                                list.appendChild(r);
+                            }
+                            panel.appendChild(list);
+                        } catch (e) { console.warn('render found array error', e); }
+                        return;
+                    }
+
+                    // Fallback: wait 5s and retry previous logic
+                    setTimeout(() => {
+                        try {
                             const pd2 = window.PRELOADED_DATA && window.PRELOADED_DATA.data;
                             if (pd2 && Array.isArray(pd2.brands)) renderDebug(pd2.brands);
                             else {
-                                // final attempt: try other likely paths and show diagnostics
+                                // show candidates one level deep
                                 const candidates = [];
                                 const src = (window.PRELOADED_DATA && window.PRELOADED_DATA.data) ? window.PRELOADED_DATA.data : window.PRELOADED_DATA;
                                 if (src && typeof src === 'object') {
@@ -285,8 +347,9 @@
                                     else renderDebug([]);
                                 }
                             }
-                        }, 5000);
-                    }
+                        } catch (e) { console.warn('retry tryRender error', e); }
+                    }, 5000);
+                }
                 } catch (e) { console.warn('tryRender error', e); }
             };
 
