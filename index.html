@@ -1040,18 +1040,8 @@ python -m http.server 8080
                 let dataObj = null;
                 // Primary specific backup filename to prioritize
                 const PRIMARY_BACKUP_NAME = 'catalog_backup_lazy_2026-01-01T18-42-54-296Z.json';
-                // Try a list of likely locations for the primary backup first, then common backups
-                const backupCandidates = [
-                    './' + PRIMARY_BACKUP_NAME,
-                    '/' + PRIMARY_BACKUP_NAME,
-                    'deploy/' + PRIMARY_BACKUP_NAME,
-                    './deploy/' + PRIMARY_BACKUP_NAME,
-                    'scripts/' + PRIMARY_BACKUP_NAME,
-                    './scripts/' + PRIMARY_BACKUP_NAME,
-                    './catalog_backup.json',
-                    './catalog_backup_lazy_2025-12-24T19-43-29-945Z.json',
-                    './backup-catalog-20251231144131.json'
-                ];
+                // Only look for the simplified data filename placed at repo root
+                const backupCandidates = ['./data.json'];
                 for (const b of backupCandidates) {
                     try {
                         dataObj = await fetchJson(b);
@@ -5507,19 +5497,7 @@ python -m http.server 8080
                             const needsHeading = !currentHero || !currentHero.heading;
                             const needsBody = !currentHero || !currentHero.body;
                             if ((needsHeading || needsBody)) {
-                                const backupCandidates = [
-                                    './catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
-                                    './deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
-                                    './scripts/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
-                                    './catalog_backup.json',
-                                    './backup-catalog-20251231144131.json',
-                                    './catalog_backup_lazy_2025-12-24T19-43-29-945Z.json',
-                                    // Fallback to raw.githubusercontent in case Pages doesn't expose deploy/ files
-                                    'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
-                                    'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/deploy/catalog_backup.json',
-                                    'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/deploy/backup-catalog-20251231144131.json',
-                                    'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/catalog_backup_lazy_2025-12-24T19-43-29-945Z.json'
-                                ];
+                                const backupCandidates = ['./data.json'];
                                 let backup = null;
                                 for (const b of backupCandidates) {
                                     try {
