@@ -1526,6 +1526,30 @@ python -m http.server 8080
                 getInTouch: 'Get in Touch',
             };
 
+            // Add a temporary FORCE RENDER button to the top-right corner
+            try {
+                const btn = document.createElement('button');
+                btn.id = 'force-render-btn';
+                btn.textContent = 'FORCE RENDER';
+                btn.style.position = 'fixed';
+                btn.style.top = '12px';
+                btn.style.right = '12px';
+                btn.style.zIndex = '9999';
+                btn.style.padding = '8px 12px';
+                btn.style.background = '#ef4444';
+                btn.style.color = 'white';
+                btn.style.border = 'none';
+                btn.style.borderRadius = '6px';
+                btn.style.cursor = 'pointer';
+                btn.title = 'Force import and render data.brands';
+                btn.onclick = async () => {
+                    if (window.forceRenderFromBrands) {
+                        try { await window.forceRenderFromBrands(); } catch(e) { console.warn(e); }
+                    } else { console.warn('forceRenderFromBrands not available'); }
+                };
+                document.body.appendChild(btn);
+            } catch (e) { /* ignore UI injection errors */ }
+
             // --- NEW DATABASE HELPERS (LAZY LOADING ARCHITECTURE) ---
             // CACHE BUSTER - Update this when data structure changes
             const CACHE_VERSION = '2025-12-26-1';
@@ -1706,6 +1730,55 @@ python -m http.server 8080
                     console.error('autoFixDuplicateProductIds error:', e);
                 }
             }
+
+            // Expose a global helper to force-import PRELOADED_DATA.data.brands into IndexedDB and reload
+            window.forceRenderFromBrands = async function() {
+                try {
+                    if (!window.PRELOADED_DATA) { console.warn('forceRender: no PRELOADED_DATA'); return; }
+                    const src = (window.PRELOADED_DATA.data && typeof window.PRELOADED_DATA.data === 'object') ? window.PRELOADED_DATA.data : window.PRELOADED_DATA;
+                    const brands = Array.isArray(src.brands) ? src.brands : (Array.isArray(window.PRELOADED_DATA.brands) ? window.PRELOADED_DATA.brands : []);
+                    const categories = Array.isArray(src.categories) ? src.categories : (Array.isArray(window.PRELOADED_DATA.categories) ? window.PRELOADED_DATA.categories : []);
+                    const productsFromBrands = [];
+                    for (const brand of brands) {
+                        const brandId = brand.id || brand.brandId || null;
+                        // direct items/products
+                        if (Array.isArray(brand.items)) {
+                            for (const it of brand.items) { try { it.brandId = it.brandId || brandId; productsFromBrands.push(it); } catch(e){} }
+                        }
+                        if (Array.isArray(brand.products)) {
+                            for (const it of brand.products) { try { it.brandId = it.brandId || brandId; productsFromBrands.push(it); } catch(e){} }
+                        }
+                        if (Array.isArray(brand.collections)) {
+                            for (const col of brand.collections) {
+                                const categoryId = col.id || col.categoryId || null;
+                                if (Array.isArray(col.items)) {
+                                    for (const it of col.items) { try { it.brandId = it.brandId || brandId; it.categoryId = it.categoryId || categoryId; productsFromBrands.push(it); } catch(e){} }
+                                }
+                                if (Array.isArray(col.products)) {
+                                    for (const it of col.products) { try { it.brandId = it.brandId || brandId; it.categoryId = it.categoryId || categoryId; productsFromBrands.push(it); } catch(e){} }
+                                }
+                            }
+                        }
+                    }
+
+                    // write to DB
+                    await Promise.all([dbClear(STORES.BRANDS), dbClear(STORES.CATEGORIES), dbClear(STORES.PRODUCTS), dbClear(STORES.CONFIG)]);
+                    if (brands.length) await Promise.all(brands.map(b => dbPut(STORES.BRANDS, b)));
+                    if (categories.length) await Promise.all(categories.map(c => dbPut(STORES.CATEGORIES, c)));
+                    if (productsFromBrands.length) await Promise.all(productsFromBrands.map(p => dbPut(STORES.PRODUCTS, p)));
+                    // persist config if present
+                    if (src.config) {
+                        try {
+                            await dbPut(STORES.CONFIG, { key: 'app_title', value: src.config.app_title || '' });
+                            await dbPut(STORES.CONFIG, { key: 'welcome_images', value: src.config.welcome_images || [] });
+                            await dbPut(STORES.CONFIG, { key: 'welcome_video', value: src.config.welcome_video || null });
+                        } catch(e) { console.warn('forceRender: failed writing config', e); }
+                    }
+                    console.info('forceRender: imported brands/products into IndexedDB (counts)', brands.length, productsFromBrands.length);
+                    // Reload to let React re-read the DB and render
+                    try { window.location.reload(); } catch(e) { console.warn('forceRender reload failed', e); }
+                } catch (err) { console.warn('forceRenderFromBrands error', err); }
+            };
 
             // run automatically but defer to allow DB initialization
             window.addEventListener('load', () => {
@@ -5476,7 +5549,7 @@ python -m http.server 8080
                         const storedMode = localStorage.getItem('isManagementMode') === 'true';
                         setIsManagementMode(storedMode);
 
-                        if (window.PRELOADED_DATA && !localStorage.getItem('catalog_preloaded_v1')) {
+                        if (window.PRELOADED_DATA) {
                             setLoadingMessage("Setting up catalog for the first time...");
                             const { data, config } = window.PRELOADED_DATA;
                             if (!data || !config) {
