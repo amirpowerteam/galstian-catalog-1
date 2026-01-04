@@ -5938,8 +5938,31 @@ python -m http.server 8080
                                 const config = pd && pd.config ? pd.config : (pd || {}).config || {};
 
                                 // Apply light normalization already done earlier, now populate UI state
-                                const brandsFromPreload = Array.isArray(data.brands) ? data.brands : [];
-                                const categoriesFromPreload = Array.isArray(data.categories) ? data.categories : [];
+                                let brandsFromPreload = Array.isArray(data.brands) ? data.brands : [];
+                                let categoriesFromPreload = Array.isArray(data.categories) ? data.categories : [];
+
+                                // If preload contains products but no brands, derive simple brand entries
+                                try {
+                                    const prodArr = Array.isArray(data.products) ? data.products : [];
+                                    if ((!brandsFromPreload || brandsFromPreload.length === 0) && prodArr.length > 0) {
+                                        const brandMap = new Map();
+                                        for (const p of prodArr) {
+                                            try {
+                                                const bid = p.brandId || p.brand || ('brand-' + (p.brandId || (p.brand || 'unknown')));
+                                                if (!brandMap.has(bid)) {
+                                                    const nameObj = (p.brandName && typeof p.brandName === 'object') ? p.brandName : (p.brandName ? { en: String(p.brandName) } : { en: String(bid) });
+                                                    brandMap.set(bid, { id: bid, name: nameObj, logo: p.brandLogo || null, items: [] });
+                                                }
+                                                brandMap.get(bid).items.push(p);
+                                            } catch (e) { /* ignore bad product entries */ }
+                                        }
+                                        const derived = Array.from(brandMap.values());
+                                        if (derived.length) {
+                                            console.info('Derived', derived.length, 'brands from products (fallback)');
+                                            brandsFromPreload = derived;
+                                        }
+                                    }
+                                } catch (e) { console.warn('Deriving brands from products failed', e); }
 
                                 // Set UI state directly from preloaded data (lazy rendering will limit DOM cost)
                                 try { setAllBrands(brandsFromPreload); } catch (e) { console.warn('setAllBrands failed', e); }
