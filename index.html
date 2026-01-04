@@ -1103,9 +1103,17 @@ python -m http.server 8080
                     } catch(e) { /* ignore */ }
                 }
                 if (!window.IS_FILE_PROTOCOL) {
-                    for (const u of tryUrls) {
-                        dataObj = await fetchJson(u);
-                        if (dataObj) { console.info('Loaded metadata from', u); break; }
+                    // Only attempt to fetch remote metadata URLs if we didn't already
+                    // successfully load a primary data backup (e.g. ./data.json).
+                    if (!dataObj) {
+                        for (const u of tryUrls) {
+                            try {
+                                const fetched = await fetchJson(u);
+                                if (fetched) { dataObj = fetched; console.info('Loaded metadata from', u); break; }
+                            } catch (e) { /* ignore individual URL failures */ }
+                        }
+                    } else {
+                        console.info('Primary backup loaded; skipping remote metadata overrides');
                     }
                 } else {
                     console.info('file:// protocol detected; skipping remote fetch');
