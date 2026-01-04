@@ -223,8 +223,19 @@
 
                 try {
                     if ('serviceWorker' in navigator) {
-                        const regs = await navigator.serviceWorker.getRegistrations();
-                        report.serviceWorkers = regs.map(r => ({ scope: r.scope, active: r.active && r.active.state, waiting: r.waiting && r.waiting.state, installing: r.installing && r.installing.state }));
+                        const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+                        const isHttp = location.protocol === 'http:' || location.protocol === 'https:';
+                        if (isHttp || isLocal) {
+                            try {
+                                const regs = await navigator.serviceWorker.getRegistrations();
+                                report.serviceWorkers = regs.map(r => ({ scope: r.scope, active: r.active && r.active.state, waiting: r.waiting && r.waiting.state, installing: r.installing && r.installing.state }));
+                            } catch (innerE) {
+                                report.swRegsError = String(innerE);
+                                report.serviceWorkers = [];
+                            }
+                        } else {
+                            report.serviceWorkers = [];
+                        }
                     }
                 } catch (e) { report.swRegsError = String(e); }
 
@@ -517,23 +528,32 @@ python -m http.server 8080
                     return;
                 }
                 if ('serviceWorker' in navigator) {
-                    navigator.serviceWorker.register('/sw.js').then((reg) => {
-                        console.log('ServiceWorker registered:', reg);
-                        if (reg.waiting) {
-                            console.log('SW waiting — consider update flow');
-                        }
-                        reg.addEventListener('updatefound', () => {
-                            const newSW = reg.installing;
-                            console.log('SW update found:', newSW);
-                            newSW.addEventListener('statechange', () => {
-                                console.log('SW statechange:', newSW.state);
-                                if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
-                                    // New update available
-                                    console.log('New SW installed — page can prompt user to refresh');
-                                }
+                    // Only attempt to register the service worker when served over HTTP(S)
+                    // or when running on localhost. Loading the page from file:// or a
+                    // null origin (e.g. some test harnesses) will throw a SecurityError.
+                    const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+                    const isHttp = location.protocol === 'http:' || location.protocol === 'https:';
+                    if (isHttp || isLocal) {
+                        navigator.serviceWorker.register('/sw.js').then((reg) => {
+                            console.log('ServiceWorker registered:', reg);
+                            if (reg.waiting) {
+                                console.log('SW waiting — consider update flow');
+                            }
+                            reg.addEventListener('updatefound', () => {
+                                const newSW = reg.installing;
+                                console.log('SW update found:', newSW);
+                                newSW.addEventListener('statechange', () => {
+                                    console.log('SW statechange:', newSW.state);
+                                    if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
+                                        // New update available
+                                        console.log('New SW installed — page can prompt user to refresh');
+                                    }
+                                });
                             });
-                        });
-                    }).catch((err) => console.error('SW registration failed', err));
+                        }).catch((err) => console.error('SW registration failed', err));
+                    } else {
+                        console.info('Skipping ServiceWorker registration: not on HTTP(S) or localhost');
+                    }
                 }
             } catch (e) {
                 console.warn('SW registration skipped:', e);
@@ -545,6 +565,27 @@ python -m http.server 8080
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin></script>
     <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Inline XLSX shim: provide minimal window.XLSX to avoid runtime errors
+         when the real SheetJS isn't available (common under file://). -->
+    <script>
+        (function(){
+            try {
+                if (typeof window !== 'undefined' && !window.XLSX) {
+                    window.XLSX = {
+                        version: 'inline-shim-1.0.0',
+                        utils: {
+                            book_new: function(){ return { Sheets: {}, SheetNames: [] }; },
+                            book_append_sheet: function(book, sheet, name){ try { if (book && book.SheetNames && Array.isArray(book.SheetNames)) { book.SheetNames.push(name||'sheet'); book.Sheets[name||('sheet'+book.SheetNames.length)] = sheet || {}; } } catch(e){} }
+                        },
+                        read: function(){ console.warn('XLSX.read shim called'); return { Sheets: {}, SheetNames: [] }; },
+                        write: function(){ console.warn('XLSX.write shim called'); return ''; }
+                    };
+                    try { console.info('Inline XLSX shim installed'); } catch(e){}
+                }
+            } catch(e) {}
+        })();
+    </script>
 
     <!-- SheetJS (XLSX) library: try local copy first, then CDN as fallback -->
     <script>
@@ -1012,6 +1053,12 @@ python -m http.server 8080
 
                 async function fetchJson(url){
                     try{
+                        const s = (url || '').toString().trim();
+                        // When running under file://, avoid attempting fetch() for repo-local paths
+                        if (window.IS_FILE_PROTOCOL && s && !/^https?:\/\//i.test(s)) {
+                            // Skip network fetches for local relative files to prevent browser errors
+                            return null;
+                        }
                         const res = await fetch(url, { cache: 'no-store' });
                         if (!res.ok) throw new Error('status ' + res.status);
                         return await res.json();
@@ -1019,7 +1066,6 @@ python -m http.server 8080
                         console.warn('fetchJson failed', url, e);
                         // If this was a local path attempt, try raw.githubusercontent fallback (unless file://)
                         try {
-                            if (window.IS_FILE_PROTOCOL) return null;
                             const s = (url || '').toString().trim();
                             if (!s) return null;
                             // only attempt for repo-local paths (relative or leading slash) not for full http URLs
