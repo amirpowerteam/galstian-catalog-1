@@ -1089,8 +1089,15 @@ python -m http.server 8080
                 let dataObj = null;
                 // Primary specific backup filename to prioritize
                 const PRIMARY_BACKUP_NAME = 'catalog_backup_lazy_2026-01-01T18-42-54-296Z.json';
-                // Only look for the simplified data filename placed at repo root
-                const backupCandidates = ['./data.json'];
+                // Look for several common backup filenames placed at repo root
+                // to increase chance of finding a usable local backup on GitHub Pages.
+                const backupCandidates = [
+                    './data.json',
+                    './catalog_backup.json',
+                    './catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
+                    './deploy/data.json',
+                    './data/catalog_backup.json'
+                ];
                 for (const b of backupCandidates) {
                     try {
                         dataObj = await fetchJson(b);
