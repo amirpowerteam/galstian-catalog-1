@@ -158,8 +158,19 @@
 
                 try {
                     if ('serviceWorker' in navigator) {
-                        const regs = await navigator.serviceWorker.getRegistrations();
-                        report.serviceWorkers = regs.map(r => ({ scope: r.scope, active: r.active && r.active.state, waiting: r.waiting && r.waiting.state, installing: r.installing && r.installing.state }));
+                        const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+                        const isHttp = location.protocol === 'http:' || location.protocol === 'https:';
+                        if (isHttp || isLocal) {
+                            try {
+                                const regs = await navigator.serviceWorker.getRegistrations();
+                                report.serviceWorkers = regs.map(r => ({ scope: r.scope, active: r.active && r.active.state, waiting: r.waiting && r.waiting.state, installing: r.installing && r.installing.state }));
+                            } catch (innerE) {
+                                report.swRegsError = String(innerE);
+                                report.serviceWorkers = [];
+                            }
+                        } else {
+                            report.serviceWorkers = [];
+                        }
                     }
                 } catch (e) { report.swRegsError = String(e); }
 
@@ -452,7 +463,7 @@ python -m http.server 8080
                     return;
                 }
                 if ('serviceWorker' in navigator) {
-                    navigator.serviceWorker.register('/sw.js').then((reg) => {
+                    navigator.serviceWorker.register('./sw.js').then((reg) => {
                         console.log('ServiceWorker registered:', reg);
                         if (reg.waiting) {
                             console.log('SW waiting — consider update flow');
