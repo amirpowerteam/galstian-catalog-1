@@ -546,20 +546,33 @@ python -m http.server 8080
                                     console.log('SW statechange:', newSW.state);
                                     if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
                                         // New update available: request activation and reload clients
-                                        console.log('New SW installed — activating and reloading clients');
+                                        console.log('New SW installed — activating and reloading clients (guarded)');
                                         try {
-                                            if (reg.waiting) {
-                                                reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+                                            // Avoid sending SKIP_WAITING repeatedly in the same browser session
+                                            const guardKey = 'galstian_sw_skip_waiting_sent_v1';
+                                            if (!sessionStorage.getItem(guardKey)) {
+                                                try {
+                                                    if (reg && reg.waiting) {
+                                                        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+                                                    } else {
+                                                        try { newSW.postMessage({ type: 'SKIP_WAITING' }); } catch (e) {}
+                                                    }
+                                                    sessionStorage.setItem(guardKey, '1');
+                                                } catch (e) { console.warn('Failed to postMessage SKIP_WAITING', e); }
                                             } else {
-                                                try { newSW.postMessage({ type: 'SKIP_WAITING' }); } catch(e){}
+                                                console.log('SKIP_WAITING already sent this session; skipping');
                                             }
-                                        } catch (e) { console.warn('Failed to postMessage SKIP_WAITING', e); }
+                                        } catch (e) { console.warn('Failed guard logic for SKIP_WAITING', e); }
 
+                                        // Ensure reload happens only once
+                                        let reloaded = false;
                                         const onControllerChange = () => {
-                                            try { navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange); } catch(e){}
-                                            try { window.location.reload(); } catch(e){}
+                                            try { navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange); } catch (e) {}
+                                            if (reloaded) return;
+                                            reloaded = true;
+                                            try { window.location.reload(); } catch (e) {}
                                         };
-                                        try { navigator.serviceWorker.addEventListener('controllerchange', onControllerChange); } catch(e){}
+                                        try { navigator.serviceWorker.addEventListener('controllerchange', onControllerChange); } catch (e) {}
                                     }
                                 });
                             });
