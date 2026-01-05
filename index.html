@@ -1084,6 +1084,33 @@ python -m http.server 8080
                 // ignore and let the existing async fetch attempts run
             }
         })();
+
+        // If PRELOADED_DATA is present, ensure old IndexedDB instances are removed
+        // so the import from the JSON can run cleanly. This runs once per browser
+        // by using a short-lived localStorage marker to avoid reload loops.
+        (function(){
+            try {
+                if (window.PRELOADED_DATA && !localStorage.getItem('preload_force_refresh_done')) {
+                    const candidates = [
+                        'PortableCatalogDB_Lazy_V1',
+                        'FurnitureCatalogDB_Standalone_v3',
+                    ];
+                    const deletes = candidates.map(name => new Promise(res => {
+                        try {
+                            const req = indexedDB.deleteDatabase(name);
+                            req.onsuccess = () => res({ name, ok: true });
+                            req.onblocked = () => res({ name, ok: true });
+                            req.onerror = () => res({ name, ok: false });
+                        } catch (e) { res({ name, ok: false }); }
+                    }));
+                    Promise.all(deletes).finally(() => {
+                        try { localStorage.setItem('preload_force_refresh_done', '1'); } catch(e){}
+                        try { console.info('Preload: candidate DBs deleted (or attempted) — reloading to import data'); } catch(e){}
+                        window.location.reload();
+                    });
+                }
+            } catch(e) { console.warn('Preload: DB purge failed', e); }
+        })();
         (function(){
             if (window.PRELOADED_DATA) return;
             window.PRELOADED_DATA_PROMISE = (async function loadPreloadedData(){
