@@ -545,8 +545,21 @@ python -m http.server 8080
                                 newSW.addEventListener('statechange', () => {
                                     console.log('SW statechange:', newSW.state);
                                     if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
-                                        // New update available
-                                        console.log('New SW installed — page can prompt user to refresh');
+                                        // New update available: request activation and reload clients
+                                        console.log('New SW installed — activating and reloading clients');
+                                        try {
+                                            if (reg.waiting) {
+                                                reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+                                            } else {
+                                                try { newSW.postMessage({ type: 'SKIP_WAITING' }); } catch(e){}
+                                            }
+                                        } catch (e) { console.warn('Failed to postMessage SKIP_WAITING', e); }
+
+                                        const onControllerChange = () => {
+                                            try { navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange); } catch(e){}
+                                            try { window.location.reload(); } catch(e){}
+                                        };
+                                        try { navigator.serviceWorker.addEventListener('controllerchange', onControllerChange); } catch(e){}
                                     }
                                 });
                             });
@@ -1088,12 +1101,14 @@ python -m http.server 8080
 
                 let dataObj = null;
                 // Primary specific backup filename to prioritize
-                const PRIMARY_BACKUP_NAME = 'catalog_backup_lazy_2026-01-01T18-42-54-296Z.json';
+                const PRIMARY_BACKUP_NAME = 'catalog_backup_lazy_2026-01-01T12-59-15-517Z.json';
                 // Look for several common backup filenames placed at repo root
                 // to increase chance of finding a usable local backup on GitHub Pages.
                 const backupCandidates = [
                     './data.json',
                     './catalog_backup.json',
+                    './catalog_backup_lazy_2026-01-01T12-59-15-517Z.json',
+                    './deploy/catalog_backup_lazy_2026-01-01T12-59-15-517Z.json',
                     './catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
                     './deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
                     './deploy/data.json',
