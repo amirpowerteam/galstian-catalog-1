@@ -7,7 +7,7 @@
 */
 
 const CACHE_PREFIX = 'galstian-cache';
-const CACHE_VERSION = '2025-12-26-1';
+const CACHE_VERSION = '2026-01-05-1';
 const PRECACHE = `${CACHE_PREFIX}-precache-${CACHE_VERSION}`;
 const RUNTIME = `${CACHE_PREFIX}-runtime-${CACHE_VERSION}`;
 const METADB = `${CACHE_PREFIX}-metadb-${CACHE_VERSION}`;
