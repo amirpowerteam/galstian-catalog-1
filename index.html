@@ -1077,6 +1077,7 @@ python -m http.server 8080
                     // ensure promise-based code can still await preloaded data
                     window.PRELOADED_DATA_PROMISE = Promise.resolve(window.PRELOADED_DATA);
                     try { console.info('PRELOADED_DATA loaded from preloaded_backup_min.json (local fallback)'); } catch(e){}
+                    try { localStorage.removeItem('catalog_preloaded_v1'); console.info('catalog_preloaded_v1 removed to allow import'); } catch(e) {}
                     return;
                 }
             } catch (e) {
