@@ -1074,6 +1074,9 @@ python -m http.server 8080
                 xhr.send(null);
                 if (xhr.status === 200) {
                     window.PRELOADED_DATA = JSON.parse(xhr.responseText);
+                    // ensure promise-based code can still await preloaded data
+                    window.PRELOADED_DATA_PROMISE = Promise.resolve(window.PRELOADED_DATA);
+                    try { console.info('PRELOADED_DATA loaded from preloaded_backup_min.json (local fallback)'); } catch(e){}
                     return;
                 }
             } catch (e) {
