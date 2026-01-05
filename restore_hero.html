@@ -58,11 +58,16 @@ python -m http.server 5173</pre>
 
     async function unregisterSW(){
       if (!('serviceWorker' in navigator)) { log('Service Worker در این مرورگر پشتیبانی نمی‌شود.'); return; }
-      const regs = await navigator.serviceWorker.getRegistrations();
-      if (!regs || regs.length === 0) { log('هیچ Service Worker ثبت‌شده‌ای یافت نشد.'); return; }
-      for (const r of regs) {
-        try { await r.unregister(); log('Service Worker حذف شد: ' + (r.scope || '')); } catch(e){ log('خطا در حذف Service Worker: '+e); }
-      }
+      const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+      const isHttp = location.protocol === 'http:' || location.protocol === 'https:';
+      if (!(isHttp || isLocal)) { log('Unregister skipped: page running under file:// (no registrations accessible)'); return; }
+      try {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        if (!regs || regs.length === 0) { log('هیچ Service Worker ثبت‌شده‌ای یافت نشد.'); return; }
+        for (const r of regs) {
+          try { await r.unregister(); log('Service Worker حذف شد: ' + (r.scope || '')); } catch(e){ log('خطا در حذف Service Worker: '+e); }
+        }
+      } catch(e) { log('خطا هنگام خواندن ثبت‌ها: '+e); }
     }
 
     async function fixMediaMapping(){

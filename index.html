@@ -1066,7 +1066,20 @@ python -m http.server 8080
     </div>
 
     <script type="text/babel">
-        /* PRELOADED_DATA_PLACEHOLDER */
+        (function(){
+            if (window.PRELOADED_DATA) return;
+            try {
+                var xhr = new XMLHttpRequest();
+                xhr.open('GET', 'preloaded_backup_min.json', false); // synchronous local load
+                xhr.send(null);
+                if (xhr.status === 200) {
+                    window.PRELOADED_DATA = JSON.parse(xhr.responseText);
+                    return;
+                }
+            } catch (e) {
+                // ignore and let the existing async fetch attempts run
+            }
+        })();
         (function(){
             if (window.PRELOADED_DATA) return;
             window.PRELOADED_DATA_PROMISE = (async function loadPreloadedData(){
