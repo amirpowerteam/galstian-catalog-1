@@ -3770,5 +3770,13 @@
       }
     ]
   },
+  "config": {
+    "app_title": "GALSTIAN Catalog",
+    "welcome_images": [],
+    "welcome_video": "",
+    "welcome_background_type": "",
+    "welcome_background_video": "",
+    "footer_info": {}
+  },
   "generatedAt": "2026-01-05T15:32:39.325Z"
 }
