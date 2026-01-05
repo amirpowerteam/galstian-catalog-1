@@ -2,16 +2,168 @@
 <html lang="en" dir="ltr" class="dark">
 
 <head>
-    <script>
-      (function(){
-        try{
-          fetch('deploy/catalog_backup_lazy_2026-01-01T12-59-15-517Z.json').then(r=>{ if(!r.ok) throw new Error('no backup'); return r.json(); }).then(d=>{ window.PRELOADED_DATA = d; console.log('PRELOADED_DATA loaded'); }).catch(()=>{ /* no preload */ });
-        }catch(e){}
-      })();
-    </script>
-
     <meta charset="UTF-8" />
     <title>GALSTIAN Catalog</title>
+    <script>
+        // Fallback handler: if an <img> or <video> fails to load and its src references
+        // /uploaded_media or /deploy, try loading the file from raw.githubusercontent.com once.
+        (function(){
+            try {
+                const USER = 'amirpowerteam';
+                const REPO = 'galstian-catalog-1';
+                // Track URLs we've already tried (to avoid noisy repeated retries)
+                const FAILED_MEDIA = new Set();
+                const tryRawFallback = (el) => {
+                    try {
+                        if (!el) return;
+                        const src = el.currentSrc || el.src || el.getAttribute && el.getAttribute('src');
+                        if (!src || typeof src !== 'string') return;
+                        // Avoid retrying same URL repeatedly
+                        if (FAILED_MEDIA.has(src)) { console.warn('Already tried fallback for', src); return; }
+                        const m = src.match(/(?:\/([^\/]+)\/)?(uploaded_media\/.*)$/);
+                        if (!m) return;
+                        const path = m[1] ? (m[1] + '/' + m[2]) : m[2];
+                        const rawUrl = `https://raw.githubusercontent.com/${USER}/${REPO}/main/${path.replace(/^\//, '')}`;
+                        el.dataset.triedRawFallback = '1';
+                        FAILED_MEDIA.add(src);
+                        // For <video>, try setting src and load; for <img>, set src
+                        if (el.tagName === 'VIDEO' || el.tagName === 'AUDIO' || el.tagName === 'SOURCE') {
+                            el.src = rawUrl;
+                            try { el.load && el.load(); } catch(e){}
+                        } else if (el.tagName === 'IMG') {
+                            el.src = rawUrl;
+                        } else {
+                            // generic setAttribute fallback
+                            try { el.setAttribute('src', rawUrl); } catch(e){}
+                        }
+                        console.info('Tried raw.githubusercontent fallback for media:', rawUrl, 'original:', src);
+                    } catch(e){}
+                };
+
+                window.addEventListener('error', function(ev){
+                    try {
+                        const target = ev.target || ev.srcElement;
+                        if (!target) return;
+                        const tag = (target.tagName || '').toUpperCase();
+                        if (tag === 'IMG' || tag === 'VIDEO' || tag === 'AUDIO' || tag === 'SOURCE') {
+                            tryRawFallback(target);
+                        }
+                    } catch(e){}
+                }, true);
+            } catch(e) { console.warn('raw fallback init failed', e); }
+        })();
+        // Safety guards: ignore accidental assignments or fetch calls with null/"null".
+        (function(){
+            try {
+                const origFetch = window.fetch && window.fetch.bind(window);
+                if (origFetch) {
+                    window.fetch = function(input, init) {
+                        if (input == null) return Promise.reject(new TypeError('fetch called with null or undefined'));
+                        if (typeof input === 'string' && input.trim().toLowerCase() === 'null') return Promise.reject(new TypeError('fetch called with string "null"'));
+                        return origFetch(input, init);
+                    };
+                }
+            } catch (e) { console.warn('Failed to patch fetch guard', e); }
+
+            // Prevent setting element.src to null which triggers requests to /null
+            try {
+                const patchSetter = (proto) => {
+                    const desc = Object.getOwnPropertyDescriptor(proto, 'src');
+                    if (!desc || typeof desc.set !== 'function') return;
+                    const origSet = desc.set;
+                    Object.defineProperty(proto, 'src', {
+                        configurable: true,
+                        enumerable: desc.enumerable,
+                        get: desc.get,
+                        set: function(v) {
+                            try {
+                                if (v == null) return; // ignore null/undefined
+                                if (typeof v === 'string') {
+                                    const s = v.trim();
+                                    if (!s) return;
+                                    const low = s.toLowerCase();
+                                    if (low === 'null') return; // ignore literal 'null'
+                                    if (s.indexOf('<<REDACTED') !== -1) return; // ignore scrubbed placeholders
+                                    if (s[0] === '<') return; // ignore accidental angle-bracket placeholders
+                                }
+                            } catch (e) { /* ignore guard errors */ }
+                            // Normalize absolute repo-root paths for GitHub Pages
+                            try {
+                                if (typeof v === 'string') {
+                                    const repoParts = (location.pathname || '').split('/').filter(Boolean);
+                                    const repoBase = repoParts.length ? repoParts[0] : null;
+                                    // If value is like '/uploaded_media/...' or '/deploy/...' and not already prefixed with repoBase,
+                                    // rewrite to include the repo base so it resolves under /<repo>/uploaded_media/... on GitHub Pages.
+                                    if (typeof v === 'string' && v.startsWith('/') && (/^\/(uploaded_media|deploy|assets)\//.test(v))) {
+                                        const newV = './' + v.replace(/^\/+/, '');
+                                        try { return origSet.call(this, newV); } catch(e) { /* fallback */ }
+                                    }
+                                }
+                            } catch(e) {}
+                            return origSet.call(this, v);
+                        }
+                    });
+                };
+                if (window.HTMLImageElement) patchSetter(HTMLImageElement.prototype);
+                if (window.HTMLMediaElement) patchSetter(HTMLMediaElement.prototype);
+            } catch (e) { console.warn('Failed to patch src setters', e); }
+            // Also guard setAttribute for src/href and specific element href/src setters (script, link)
+            try {
+                const origSetAttribute = Element.prototype.setAttribute;
+                Element.prototype.setAttribute = function(name, value) {
+                    try {
+                        const n = (name || '').toString().toLowerCase();
+                        if ((n === 'src' || n === 'href') && typeof value === 'string') {
+                            const sv = value.trim();
+                            if (!sv) return;
+                            if (sv.toLowerCase() === 'null') return;
+                            if (sv.indexOf('<<REDACTED') !== -1) return;
+                            if (sv[0] === '<') return;
+                            try {
+                                if (sv.startsWith('/') && (/^\/(uploaded_media|deploy|assets)\//.test(sv))) {
+                                    value = './' + sv.replace(/^\/+/, '');
+                                }
+                            } catch(e) {}
+                        }
+                    } catch (e) { /* ignore */ }
+                    return origSetAttribute.call(this, name, value);
+                };
+
+                const patchProp = (proto, prop) => {
+                    try {
+                        const desc = Object.getOwnPropertyDescriptor(proto, prop);
+                        if (!desc || typeof desc.set !== 'function') return;
+                        const orig = desc.set;
+                        Object.defineProperty(proto, prop, {
+                            configurable: true,
+                            enumerable: desc.enumerable,
+                            get: desc.get,
+                            set: function(v) {
+                                try {
+                                    if (v == null) return;
+                                    if (typeof v === 'string') {
+                                        const s = v.trim();
+                                        if (!s) return;
+                                        if (s.toLowerCase() === 'null') return;
+                                        if (s.indexOf('<<REDACTED') !== -1) return;
+                                        if (s[0] === '<') return;
+                                    }
+                                } catch (e) { /* ignore */ }
+                                return orig.call(this, v);
+                            }
+                        });
+                    } catch (e) {}
+                };
+
+                if (window.HTMLScriptElement) patchProp(HTMLScriptElement.prototype, 'src');
+                if (window.HTMLLinkElement) patchProp(HTMLLinkElement.prototype, 'href');
+                if (window.HTMLAnchorElement) patchProp(HTMLAnchorElement.prototype, 'href');
+            } catch (e) { console.warn('Failed to patch setAttribute/src/href guards', e); }
+        })();
+    </script>
+    <script>
+        // Debug Brands View removed for production: UI now sources brands from PRELOADED_DATA
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
     <script>
@@ -164,80 +316,46 @@
                     } else {
                         // Fallback: attempt to open known DB names and enumerate their object stores.
                         try {
-                            const embeddedMedia = {};
-                            try {
-                            const MAX_EMBED_BYTES = 12 * 1024 * 1024; // 12 MB limit for embedding
-                            const maybeFetchAsDataUrl = async (url) => {
-                                if (!url) return null;
-                                if (!/^\/.+|^\.\//.test(url) && !url.includes('uploaded_media') && !url.includes('assets')) return null;
-
-                                const readBufferToDataUrl = (buf, srcUrl) => {
-                                    if (!buf) return null;
-                                    if (buf.byteLength > MAX_EMBED_BYTES) return null;
-                                    let binary = '';
-                                    const bytes = new Uint8Array(buf);
-                                    const chunkSize = 0x8000;
-                                    for (let i = 0; i < bytes.length; i += chunkSize) {
-                                        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
-                                    }
-                                    const b64 = btoa(binary);
-                                    const ext = (srcUrl.split('.').pop() || '').toLowerCase();
-                                    const mime = ext === 'mp4' ? 'video/mp4' : ext === 'webm' ? 'video/webm' : 'application/octet-stream';
-                                    return `data:${mime};base64,${b64}`;
-                                };
-
-                                const tryFetch = async (fetchUrl, options = {}) => {
-                                    try {
-                                        const resp = await fetch(fetchUrl, options);
-                                        if (!resp || !resp.ok) return null;
-                                        const buf = await resp.arrayBuffer();
-                                        return readBufferToDataUrl(buf, fetchUrl);
-                                    } catch (e) {
-                                        return null;
-                                    }
-                                };
-
-                                if (typeof url === 'string' && url.startsWith('data:')) return url.length <= MAX_EMBED_BYTES ? url : null;
-
-                                let result = await tryFetch(url, { cache: 'no-store' });
-                                if (result) return result;
-
+                            const candidateDBs = [];
+                            if (typeof DB_NAME === 'string') candidateDBs.push(DB_NAME);
+                            if (typeof LEGACY_DB_NAME === 'string') candidateDBs.push(LEGACY_DB_NAME);
+                            // also check for PortableCatalogDB_Lazy_* variants
+                            candidateDBs.push('PortableCatalogDB_Lazy_V1');
+                            for (const dbName of Array.from(new Set(candidateDBs))) {
+                                if (!dbName) continue;
                                 try {
-                                    if (window.caches && caches.match) {
-                                        const cachedResp = await caches.match(url);
-                                        if (cachedResp && cachedResp.ok) {
-                                            try {
-                                                const buf = await cachedResp.arrayBuffer();
-                                                const dataUrl = readBufferToDataUrl(buf, url);
-                                                if (dataUrl) return dataUrl;
-                                            } catch (e) {}
-                                        }
-                                    }
-                                } catch (e) {}
-
-                                try {
-                                    const sep = url.includes('?') ? '&' : '?';
-                                    const busted = url + sep + '_cb=' + Date.now();
-                                    result = await tryFetch(busted, { cache: 'reload' });
-                                    if (result) return result;
-                                } catch (e) {}
-
-                                result = await tryFetch(url);
-                                return result;
-                            };
-
-                            const welcomeVideoUrl = videoConf?.value || null;
-                            const heroUrl = heroBlockConf?.value && heroBlockConf.value.mediaUrl ? heroBlockConf.value.mediaUrl : null;
-                            const wData = await maybeFetchAsDataUrl(welcomeVideoUrl);
-                            const hData = await maybeFetchAsDataUrl(heroUrl);
-                            if (wData) embeddedMedia.welcome_video = { src: welcomeVideoUrl, dataUrl: wData };
-                            if (hData) embeddedMedia.hero_video = { src: heroUrl, dataUrl: hData };
-                            if (Object.keys(embeddedMedia).length) {
-                                addToast('Including uploaded videos in backup (this may increase file size).', 'info');
-                            }
-                        } catch (e) {
-                            console.warn('Embedding media failed', e);
-                        }
+                                    const req = indexedDB.open(dbName);
+                                    const dbObj = await new Promise((res, rej) => {
+                                        req.onsuccess = () => res(req.result);
+                                        req.onerror = () => rej(req.error);
+                                        req.onupgradeneeded = () => { req.transaction && req.transaction.abort(); res(req.result); };
+                                    });
+                                    const stores = Array.from(dbObj.objectStoreNames || []);
+                                    report.indexedDB[dbName] = { stores: {} };
+                                    for (const s of stores) {
+                                        try {
+                                            const tx = dbObj.transaction(s, 'readonly');
+                                            const store = tx.objectStore(s);
+                                            let items = [];
+                                            if ('getAll' in store) {
+                                                items = await new Promise((res, rej) => { const r = store.getAll(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+                                            } else {
+                                                // iterate with cursor
+                                                items = await new Promise((res, rej) => {
+                                                    const out = [];
+                                                    const cursorReq = store.openCursor();
+                                                    cursorReq.onsuccess = (ev) => {
+                                                        const c = ev.target.result;
+                                                        if (!c) return res(out);
+                                                        out.push(c.value);
+                                                        if (out.length >= 200) return res(out);
+                                                        c.continue();
+                                                    };
+                                                    cursorReq.onerror = () => rej(cursorReq.error);
+                                                });
+                                            }
+                                            report.indexedDB[dbName].stores[s] = { count: items.length, sample: items.slice(0,200) };
+                                        } catch (e) {
                                             report.indexedDB[dbName].stores[s] = { error: String(e) };
                                         }
                                     }
@@ -412,11 +530,11 @@ python -m http.server 8080
                 if ('serviceWorker' in navigator) {
                     // Only attempt to register the service worker when served over HTTP(S)
                     // or when running on localhost. Loading the page from file:// or a
-                    // null origin will throw a SecurityError in some browsers.
+                    // null origin (e.g. some test harnesses) will throw a SecurityError.
                     const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
                     const isHttp = location.protocol === 'http:' || location.protocol === 'https:';
                     if (isHttp || isLocal) {
-                        navigator.serviceWorker.register('/sw.js').then((reg) => {
+                        navigator.serviceWorker.register('./sw.js').then((reg) => {
                             console.log('ServiceWorker registered:', reg);
                             if (reg.waiting) {
                                 console.log('SW waiting — consider update flow');
@@ -427,8 +545,34 @@ python -m http.server 8080
                                 newSW.addEventListener('statechange', () => {
                                     console.log('SW statechange:', newSW.state);
                                     if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
-                                        // New update available
-                                        console.log('New SW installed — page can prompt user to refresh');
+                                        // New update available: request activation and reload clients
+                                        console.log('New SW installed — activating and reloading clients (guarded)');
+                                        try {
+                                            // Avoid sending SKIP_WAITING repeatedly in the same browser session
+                                            const guardKey = 'galstian_sw_skip_waiting_sent_v1';
+                                            if (!sessionStorage.getItem(guardKey)) {
+                                                try {
+                                                    if (reg && reg.waiting) {
+                                                        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+                                                    } else {
+                                                        try { newSW.postMessage({ type: 'SKIP_WAITING' }); } catch (e) {}
+                                                    }
+                                                    sessionStorage.setItem(guardKey, '1');
+                                                } catch (e) { console.warn('Failed to postMessage SKIP_WAITING', e); }
+                                            } else {
+                                                console.log('SKIP_WAITING already sent this session; skipping');
+                                            }
+                                        } catch (e) { console.warn('Failed guard logic for SKIP_WAITING', e); }
+
+                                        // Ensure reload happens only once
+                                        let reloaded = false;
+                                        const onControllerChange = () => {
+                                            try { navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange); } catch (e) {}
+                                            if (reloaded) return;
+                                            reloaded = true;
+                                            try { window.location.reload(); } catch (e) {}
+                                        };
+                                        try { navigator.serviceWorker.addEventListener('controllerchange', onControllerChange); } catch (e) {}
                                     }
                                 });
                             });
@@ -447,6 +591,27 @@ python -m http.server 8080
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin></script>
     <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Inline XLSX shim: provide minimal window.XLSX to avoid runtime errors
+         when the real SheetJS isn't available (common under file://). -->
+    <script>
+        (function(){
+            try {
+                if (typeof window !== 'undefined' && !window.XLSX) {
+                    window.XLSX = {
+                        version: 'inline-shim-1.0.0',
+                        utils: {
+                            book_new: function(){ return { Sheets: {}, SheetNames: [] }; },
+                            book_append_sheet: function(book, sheet, name){ try { if (book && book.SheetNames && Array.isArray(book.SheetNames)) { book.SheetNames.push(name||'sheet'); book.Sheets[name||('sheet'+book.SheetNames.length)] = sheet || {}; } } catch(e){} }
+                        },
+                        read: function(){ console.warn('XLSX.read shim called'); return { Sheets: {}, SheetNames: [] }; },
+                        write: function(){ console.warn('XLSX.write shim called'); return ''; }
+                    };
+                    try { console.info('Inline XLSX shim installed'); } catch(e){}
+                }
+            } catch(e) {}
+        })();
+    </script>
 
     <!-- SheetJS (XLSX) library: try local copy first, then CDN as fallback -->
     <script>
@@ -901,7 +1066,462 @@ python -m http.server 8080
     </div>
 
     <script type="text/babel">
-        /* PRELOADED_DATA_PLACEHOLDER */
+        (function(){
+            if (window.PRELOADED_DATA) return;
+            try {
+                var xhr = new XMLHttpRequest();
+                xhr.open('GET', './deploy/catalog_backup_lazy_2026-01-01T12-59-15-517Z.json', false); // synchronous local load (use approved deploy backup)
+                xhr.send(null);
+                if (xhr.status === 200) {
+                    window.PRELOADED_DATA = JSON.parse(xhr.responseText);
+                    // ensure promise-based code can still await preloaded data
+                    window.PRELOADED_DATA_PROMISE = Promise.resolve(window.PRELOADED_DATA);
+                    try { console.info('PRELOADED_DATA loaded from preloaded_backup_min.json (local fallback)'); } catch(e){}
+                    try { localStorage.removeItem('catalog_preloaded_v1'); console.info('catalog_preloaded_v1 removed to allow import'); } catch(e) {}
+                    return;
+                }
+            } catch (e) {
+                // ignore and let the existing async fetch attempts run
+            }
+        })();
+
+        // If PRELOADED_DATA is present, ensure old IndexedDB instances are removed
+        // so the import from the JSON can run cleanly. This runs once per browser
+        // by using a short-lived localStorage marker to avoid reload loops.
+        (function(){
+            try {
+                if (window.PRELOADED_DATA && !localStorage.getItem('preload_force_refresh_done')) {
+                    const candidates = [
+                        'PortableCatalogDB_Lazy_V1',
+                        'FurnitureCatalogDB_Standalone_v3',
+                    ];
+                    const deletes = candidates.map(name => new Promise(res => {
+                        try {
+                            const req = indexedDB.deleteDatabase(name);
+                            req.onsuccess = () => res({ name, ok: true });
+                            req.onblocked = () => res({ name, ok: true });
+                            req.onerror = () => res({ name, ok: false });
+                        } catch (e) { res({ name, ok: false }); }
+                    }));
+                    Promise.all(deletes).finally(() => {
+                        try { localStorage.setItem('preload_force_refresh_done', '1'); } catch(e){}
+                        try { console.info('Preload: candidate DBs deleted (or attempted) — reloading to import data'); } catch(e){}
+                        window.location.reload();
+                    });
+                }
+            } catch(e) { console.warn('Preload: DB purge failed', e); }
+        })();
+        (function(){
+            if (window.PRELOADED_DATA) return;
+            window.PRELOADED_DATA_PROMISE = (async function loadPreloadedData(){
+                const tryUrls = [
+                    'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/metadata.json',
+                    'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/metadata-1.json',
+                    'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/metadata-1-1.json',
+                    'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/metadata-1-1-1.json'
+                ];
+
+                async function fetchJson(url){
+                    try{
+                        const s = (url || '').toString().trim();
+                        // When running under file://, avoid attempting fetch() for repo-local paths
+                        if (window.IS_FILE_PROTOCOL && s && !/^https?:\/\//i.test(s)) {
+                            // Skip network fetches for local relative files to prevent browser errors
+                            return null;
+                        }
+                        const res = await fetch(url, { cache: 'no-store' });
+                        if (!res.ok) throw new Error('status ' + res.status);
+                        return await res.json();
+                    }catch(e){
+                        console.warn('fetchJson failed', url, e);
+                        // If this was a local path attempt, try raw.githubusercontent fallback (unless file://)
+                        try {
+                            const s = (url || '').toString().trim();
+                            if (!s) return null;
+                            // only attempt for repo-local paths (relative or leading slash) not for full http URLs
+                            if (/^https?:\/\//i.test(s)) return null;
+                            // derive repo raw path
+                            const rawBase = 'https://raw.githubusercontent.com/amirpowerteam/galstian-catalog-1/main/';
+                            const candidate = s.replace(/^\.\//, '').replace(/^\//, '');
+                            const rawUrl = rawBase + candidate;
+                            try {
+                                const r2 = await fetch(rawUrl, { cache: 'no-store' });
+                                if (!r2.ok) throw new Error('status ' + r2.status);
+                                return await r2.json();
+                            } catch (eraw) {
+                                console.warn('raw fallback failed for', rawUrl, eraw);
+                                return null;
+                            }
+                        } catch (ee) { return null; }
+                    }
+                }
+
+                let dataObj = null;
+                // Primary specific backup filename to prioritize
+                const PRIMARY_BACKUP_NAME = 'catalog_backup_lazy_2026-01-01T12-59-15-517Z.json';
+                // Strict: only attempt the approved deploy backup to avoid 404 noise
+                const backupCandidates = [
+                    './deploy/catalog_backup_lazy_2026-01-01T12-59-15-517Z.json'
+                ];
+                for (const b of backupCandidates) {
+                    try {
+                        dataObj = await fetchJson(b);
+                        if (dataObj) { 
+                            console.info('Loaded metadata from backup', b);
+                            try { window.PRELOADED_DATA_SOURCE = b; } catch(e){}
+                            try { window.PRELOADED_DATA_FROM_PRIMARY = (b && b.indexOf(PRIMARY_BACKUP_NAME) !== -1); } catch(e){}
+                            break; 
+                        }
+                    } catch(e) { /* ignore */ }
+                }
+                if (!window.IS_FILE_PROTOCOL) {
+                    // Only attempt to fetch remote metadata URLs if we didn't already
+                    // successfully load a primary data backup (e.g. ./data.json).
+                    if (!dataObj) {
+                        for (const u of tryUrls) {
+                            try {
+                                const fetched = await fetchJson(u);
+                                if (fetched) { dataObj = fetched; console.info('Loaded metadata from', u); break; }
+                            } catch (e) { /* ignore individual URL failures */ }
+                        }
+                    } else {
+                        console.info('Primary backup loaded; skipping remote metadata overrides');
+                    }
+                } else {
+                    console.info('file:// protocol detected; skipping remote fetch');
+                }
+
+                if (!dataObj) {
+                    const localCandidates = ['metadata.json','metadata-1.json','metadata-1-1.json','metadata-1-1-1.json'];
+                    for (const u of localCandidates) {
+                        dataObj = await fetchJson(u);
+                        if (dataObj) { console.info('Loaded metadata from local', u); break; }
+                    }
+                }
+
+                if (dataObj) {
+                    // Normalize absolute repo-root media paths (e.g. '/uploaded_media/...')
+                    // to relative paths so they resolve correctly under GitHub Pages
+                    const normalizePathsDeep = (obj) => {
+                        if (!obj || typeof obj !== 'object') return;
+                        const walk = (value) => {
+                            if (Array.isArray(value)) {
+                                for (let i = 0; i < value.length; i++) {
+                                    if (typeof value[i] === 'string') {
+                                        value[i] = normalizeString(value[i]);
+                                    } else if (typeof value[i] === 'object' && value[i] !== null) {
+                                        walk(value[i]);
+                                    }
+                                }
+                                return;
+                            }
+                            if (typeof value === 'object') {
+                                for (const k in value) {
+                                    if (!Object.prototype.hasOwnProperty.call(value, k)) continue;
+                                    const v = value[k];
+                                    if (typeof v === 'string') {
+                                        value[k] = normalizeString(v);
+                                    } else if (typeof v === 'object' && v !== null) {
+                                        walk(v);
+                                    }
+                                }
+                            }
+                        };
+
+                        const normalizeString = (s) => {
+                            if (!s || typeof s !== 'string') return s;
+                            const trimmed = s.trim();
+                            if (!trimmed) return s;
+                            // don't touch obvious absolute URLs or data/blob
+                            if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith('data:') || trimmed.startsWith('blob:')) return trimmed;
+                            // Only normalize known repo-local media paths to relative (remove leading slash)
+                            if (/^\/(uploaded_media|deploy|assets)\//.test(trimmed)) {
+                                // convert repo-root paths to explicit relative paths so they resolve under the repo
+                                return './' + trimmed.replace(/^\/+/, '');
+                            }
+                            return trimmed;
+                        };
+
+                        walk(obj);
+                    };
+
+                    try { normalizePathsDeep(dataObj); } catch(e) { console.warn('normalizePathsDeep failed', e); }
+
+                    // For large files avoid printing full contents — attempt to fetch size via HEAD
+                    try {
+                        const previewSrc = (window.PRELOADED_DATA_SOURCE && typeof window.PRELOADED_DATA_SOURCE === 'string') ? window.PRELOADED_DATA_SOURCE : './data.json';
+                        try {
+                            const head = await fetch(previewSrc, { method: 'HEAD', cache: 'no-store' });
+                            const len = head && head.ok ? head.headers.get('content-length') : null;
+                            if (len) console.log('DATA_PREVIEW: content-length=', len);
+                        } catch (e) {
+                            // HEAD may be blocked; skip heavy preview to avoid memory pressure
+                            console.log('DATA_PREVIEW: (size unavailable, skipping large body preview)');
+                        }
+                    } catch(e) { /* ignore */ }
+
+                    // Deep-search for arrays that look like product lists
+                    // Recursive/iterative finder: locate first array with length >= minLen (default 6)
+                    const recursiveFindLargeArray = (root, minLen = 6) => {
+                        try {
+                            const seen = new WeakSet();
+                            const stack = [{ node: root, path: 'root' }];
+                            while (stack.length) {
+                                const { node, path } = stack.pop();
+                                if (!node || typeof node !== 'object') continue;
+                                if (seen.has(node)) continue;
+                                seen.add(node);
+                                if (Array.isArray(node) && node.length >= minLen) {
+                                    // ensure it's an array of objects (at least one sample)
+                                    let objCount = 0;
+                                    for (let i = 0; i < Math.min(node.length, 10); i++) {
+                                        if (node[i] && typeof node[i] === 'object') objCount++;
+                                    }
+                                    if (objCount > 0) return { array: node, path };
+                                }
+                                if (Array.isArray(node)) {
+                                    for (let i = 0; i < node.length; i++) stack.push({ node: node[i], path: path + '[' + i + ']' });
+                                } else {
+                                    for (const k of Object.keys(node)) {
+                                        try { stack.push({ node: node[k], path: path + '.' + k }); } catch (e) {}
+                                    }
+                                }
+                            }
+                        } catch (e) { console.warn('recursiveFindLargeArray error', e); }
+                        return null;
+                    };
+
+                    // Normalize absolute repo-root media paths (e.g. '/uploaded_media/...')
+                    // to relative paths so they resolve correctly under GitHub Pages
+                    const normalizePaths = (obj) => {
+                        if (!obj || typeof obj !== 'object') return;
+                        const walk = (value) => {
+                            if (Array.isArray(value)) {
+                                for (let i = 0; i < value.length; i++) {
+                                    if (typeof value[i] === 'string') {
+                                        value[i] = normalizeString(value[i]);
+                                    } else if (typeof value[i] === 'object' && value[i] !== null) {
+                                        walk(value[i]);
+                                    }
+                                }
+                                return;
+                            }
+                            if (typeof value === 'object') {
+                                for (const k in value) {
+                                    if (!Object.prototype.hasOwnProperty.call(value, k)) continue;
+                                    const v = value[k];
+                                    if (typeof v === 'string') {
+                                        value[k] = normalizeString(v);
+                                    } else if (typeof v === 'object' && v !== null) {
+                                        walk(v);
+                                    }
+                                }
+                            }
+                        };
+
+                        const normalizeString = (s) => {
+                            if (!s || typeof s !== 'string') return s;
+                            const trimmed = s.trim();
+                            if (!trimmed) return s;
+                            if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith('data:') || trimmed.startsWith('blob:')) return trimmed;
+                            if (/^\/(uploaded_media|deploy|assets)\//.test(trimmed)) {
+                                return './' + trimmed.replace(/^\/+/, '');
+                            }
+                            return trimmed;
+                        };
+
+                        walk(obj);
+                    };
+
+                    try { normalizePaths(dataObj); } catch(e) { console.warn('normalizePaths failed', e); }
+
+                    // Build base mappings and then attempt to find a product array if missing
+                    const data = {
+                        brands: dataObj.brands || [],
+                        categories: dataObj.categories || [],
+                        products: dataObj.products || []
+                    };
+                    const config = dataObj.config || {
+                        app_title: dataObj.app_title || 'GALSTIAN',
+                        welcome_images: dataObj.welcome_images || [],
+                        welcome_video: dataObj.welcome_video || null,
+                        welcome_background_type: dataObj.welcome_background_type || 'image',
+                        welcome_background_video: dataObj.welcome_background_video || null
+                    };
+
+                    // If products look empty, perform a deep search for any large arrays
+                    try {
+                        const prodArr = (data && data.products && Array.isArray(data.products)) ? data.products : [];
+                        if (!prodArr || prodArr.length === 0) {
+                            const found = recursiveFindLargeArray(dataObj, 6);
+                            if (found && Array.isArray(found.array) && found.array.length > 0) {
+                                data.products = found.array;
+                                console.info('Deep-recovered large array mapped to data.products - path:', found.path, 'length:', found.array.length);
+                            } else {
+                                console.info('Deep search did not find any large arrays');
+                            }
+                        }
+                    } catch (e) { console.warn('Deep large-array search failed', e); }
+
+                    // Force the app to use the discovered data
+                    // If the backup places products under data.brands (nested structure), extract items
+                    try {
+                        // prefer explicit data.products when present
+                        let prodArr = (data && data.products && Array.isArray(data.products)) ? data.products : [];
+                        // handle older/nested structure: favor mapping brands from dataObj.data.brands or dataObj.brands
+                        try {
+                            const brandsSource = (dataObj && dataObj.data && Array.isArray(dataObj.data.brands)) ? dataObj.data.brands : (Array.isArray(dataObj.brands) ? dataObj.brands : (Array.isArray(data.brands) ? data.brands : []));
+                            if (brandsSource && brandsSource.length > 0) {
+                                // ensure data.brands is populated for later DB import
+                                data.brands = brandsSource;
+                            }
+
+                            // If still no products, try to extract items/products from brands collections
+                            const prodArrNow = (data && data.products && Array.isArray(data.products)) ? data.products : [];
+                            if ((!prodArrNow || prodArrNow.length === 0) && Array.isArray(data.brands) && data.brands.length > 0) {
+                                const extracted = [];
+                                for (const brand of data.brands) {
+                                    const brandId = brand.id || brand.brandId || null;
+                                    if (Array.isArray(brand.items)) for (const it of brand.items) { try { it.brandId = it.brandId || brandId; if (typeof it.name === 'string') it.name = { en: it.name }; extracted.push(it); } catch(e){} }
+                                    if (Array.isArray(brand.products)) for (const it of brand.products) { try { it.brandId = it.brandId || brandId; if (typeof it.name === 'string') it.name = { en: it.name }; extracted.push(it); } catch(e){} }
+                                    if (Array.isArray(brand.collections)) {
+                                        for (const col of brand.collections) {
+                                            const categoryId = col.id || col.categoryId || null;
+                                            if (Array.isArray(col.items)) for (const it of col.items) { try { it.brandId = it.brandId || brandId; it.categoryId = it.categoryId || categoryId; if (typeof it.name === 'string') it.name = { en: it.name }; extracted.push(it); } catch(e){} }
+                                            if (Array.isArray(col.products)) for (const it of col.products) { try { it.brandId = it.brandId || brandId; it.categoryId = it.categoryId || categoryId; if (typeof it.name === 'string') it.name = { en: it.name }; extracted.push(it); } catch(e){} }
+                                        }
+                                    }
+                                }
+                                if (extracted.length > 0) {
+                                    data.products = extracted;
+                                    console.info('Mapped products from brands -> data.products (count):', extracted.length);
+                                }
+                            }
+                        } catch (e) { console.warn('Failed extracting products from brands', e); }
+
+                        // Additional fallback: attempt to map arrays by shape if brands/products are still empty
+                        try {
+                            const hasBrands = Array.isArray(data.brands) && data.brands.length > 0;
+                            const hasProducts = Array.isArray(data.products) && data.products.length > 0;
+
+                            const findArrayByProps = (root, requiredProps = [], minLen = 6) => {
+                                try {
+                                    const seen = new WeakSet();
+                                    const stack = [{ node: root, path: 'root' }];
+                                    while (stack.length) {
+                                        const { node, path } = stack.pop();
+                                        if (!node || typeof node !== 'object') continue;
+                                        if (seen.has(node)) continue;
+                                        seen.add(node);
+                                        if (Array.isArray(node) && node.length >= minLen) {
+                                            // sample first few elements
+                                            let matchCount = 0;
+                                            for (let i = 0; i < Math.min(node.length, 8); i++) {
+                                                const it = node[i];
+                                                if (it && typeof it === 'object') {
+                                                    let ok = true;
+                                                    for (const p of requiredProps) {
+                                                        if (!(p in it)) { ok = false; break; }
+                                                    }
+                                                    if (ok) matchCount++;
+                                                }
+                                            }
+                                            if (matchCount >= 1) return { array: node, path };
+                                        }
+                                        if (Array.isArray(node)) {
+                                            for (let i = 0; i < node.length; i++) stack.push({ node: node[i], path: path + '[' + i + ']' });
+                                        } else {
+                                            for (const k of Object.keys(node)) {
+                                                try { stack.push({ node: node[k], path: path + '.' + k }); } catch(e){}
+                                            }
+                                        }
+                                    }
+                                } catch (e) { /* ignore */ }
+                                return null;
+                            };
+
+                            if (!hasBrands) {
+                                // try find arrays of objects that look like brands (have name or logo)
+                                const brandCandidates = [ ['name','logo'], ['name','items'], ['name'] ];
+                                for (const props of brandCandidates) {
+                                    const found = findArrayByProps(dataObj, props, 4);
+                                    if (found && Array.isArray(found.array) && found.array.length) {
+                                        data.brands = found.array;
+                                        console.info('Fallback-mapped data.brands from path', found.path, 'length', found.array.length);
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (!hasProducts) {
+                                // try find arrays that look like products (have brandId or categoryId)
+                                const prodCandidates = [ ['brandId','categoryId'], ['brandId'], ['categoryId'], ['image','name'] ];
+                                for (const props of prodCandidates) {
+                                    const found = findArrayByProps(dataObj, props, 4);
+                                    if (found && Array.isArray(found.array) && found.array.length) {
+                                        data.products = found.array;
+                                        console.info('Fallback-mapped data.products from path', found.path, 'length', found.array.length);
+                                        break;
+                                    }
+                                }
+                            }
+                        } catch (e) { console.warn('Fallback mapping error', e); }
+
+                        // finally set PRELOADED_DATA with the discovered products/brands
+                        window.PRELOADED_DATA = { data, config };
+                    } catch (e) { console.warn('Setting PRELOADED_DATA failed', e); }
+                    try {
+                        // If running on GitHub Pages, clear the 'catalog_preloaded_v1' flag
+                        // to force a fresh import from the deployed backup (helpful after deploys).
+                        const host = (location && location.hostname) ? location.hostname : '';
+                        if (host.indexOf('github.io') !== -1 || host.indexOf('amirpowerteam.github.io') !== -1) {
+                            try { localStorage.removeItem('catalog_preloaded_v1'); } catch(e){}
+                            try { localStorage.removeItem('catalog_backup_etag'); } catch(e){}
+                            try { localStorage.removeItem('catalog_backup_version'); } catch(e){}
+                            console.info('Cleared preload flags on GitHub Pages to force catalog import.');
+                        }
+                    } catch(e) {}
+                    return true;
+                }
+                console.warn('No preloaded metadata found on GitHub or local files.');
+                return false;
+            })();
+        })();
+
+        // Auto-promote debug mapping: if PRELOADED_DATA was found, import it
+        // into IndexedDB automatically using the existing `forceRenderFromBrands` helper.
+        // This makes the main catalog load the same data path the debug view used.
+        try {
+            if (window.PRELOADED_DATA_PROMISE && typeof window !== 'undefined') {
+                window.PRELOADED_DATA_PROMISE.then((ok) => {
+                    try {
+                        if (ok && window.PRELOADED_DATA && typeof window.forceRenderFromBrands === 'function') {
+                            try {
+                                const FLAG = 'catalog_auto_import_done_v1';
+                                    try {
+                                        const already = localStorage.getItem(FLAG);
+                                        const prevSource = localStorage.getItem('catalog_preloaded_source') || '';
+                                        const curSource = (window.PRELOADED_DATA_SOURCE && typeof window.PRELOADED_DATA_SOURCE === 'string') ? window.PRELOADED_DATA_SOURCE : '';
+                                        const forceBecausePrimary = !!window.PRELOADED_DATA_FROM_PRIMARY;
+                                        const sourceChanged = prevSource !== curSource;
+                                        if (already && !forceBecausePrimary && !sourceChanged) {
+                                            console.info('Skipping auto-import:', FLAG, 'present and source unchanged');
+                                        } else {
+                                            console.info('Auto-importing PRELOADED_DATA into IndexedDB via forceRenderFromBrands', { prevSource, curSource, forceBecausePrimary });
+                                            // mark as done to avoid reload loops
+                                            try { localStorage.setItem(FLAG, String(Date.now())); } catch(e) { console.warn('Could not set auto-import flag', e); }
+                                            try { localStorage.setItem('catalog_preloaded_source', curSource); } catch(e) { /* ignore */ }
+                                            // Defer slightly so DB initialization and UI mount complete
+                                            setTimeout(() => { try { window.forceRenderFromBrands(); } catch (e) { console.warn('auto forceRender failed', e); } }, 500);
+                                        }
+                                    } catch(e) { console.warn('auto-import guard failed', e); }
+                            } catch(e) { console.warn('auto-import flag check failed', e); }
+                        }
+                    } catch (e) { console.warn('PRELOADED_DATA auto-import handler failed', e); }
+                }).catch((e) => { /* ignore */ });
+            }
+        } catch (e) {}
+
         window.onload = () => {
             const { useState, useEffect, useCallback, useMemo, useRef } = React;
 
@@ -1104,6 +1724,8 @@ python -m http.server 8080
                 getInTouch: 'Get in Touch',
             };
 
+            // FORCE RENDER button removed for production
+
             // --- NEW DATABASE HELPERS (LAZY LOADING ARCHITECTURE) ---
             // CACHE BUSTER - Update this when data structure changes
             const CACHE_VERSION = '2025-12-26-1';
@@ -1284,6 +1906,141 @@ python -m http.server 8080
                     console.error('autoFixDuplicateProductIds error:', e);
                 }
             }
+
+            // Expose a global helper to force-import PRELOADED_DATA.data.brands into IndexedDB and reload
+            window.forceRenderFromBrands = async function() {
+                try {
+                    if (!window.PRELOADED_DATA) { console.warn('forceRender: no PRELOADED_DATA'); return; }
+                    // DATA PATH: use window.PRELOADED_DATA.data.brands as primary source
+                    const srcRoot = (window.PRELOADED_DATA.data && typeof window.PRELOADED_DATA.data === 'object') ? window.PRELOADED_DATA.data : window.PRELOADED_DATA;
+                    let brands = Array.isArray(srcRoot.brands) ? srcRoot.brands : [];
+                    const categories = Array.isArray(srcRoot.categories) ? srcRoot.categories : [];
+
+                    // helper to ensure name is an object and prefer name.en
+                    const normalizeNameObject = (item) => {
+                        if (!item) return item;
+                        try {
+                            if (typeof item.name === 'string') {
+                                item.name = { en: item.name };
+                            } else if (!item.name) {
+                                item.name = { en: item.title || '' };
+                            }
+                        } catch (e) {}
+                        return item;
+                    };
+
+                    // helper to fix base64 images: ensure data:image/*;base64, prefix
+                    const fixBase64Image = (s) => {
+                        if (!s || typeof s !== 'string') return s;
+                        const trimmed = s.trim();
+                        if (trimmed.startsWith('data:')) return trimmed;
+                        // common base64 starts: /9j/ (jpg) or iVBOR (png) or R0lGOD (gif)
+                        if (/^(?:\/9j\/|iVBOR|R0lGOD)/.test(trimmed)) {
+                            if (trimmed.startsWith('/9j/')) return 'data:image/jpeg;base64,' + trimmed;
+                            if (trimmed.startsWith('iVBOR')) return 'data:image/png;base64,' + trimmed;
+                            return 'data:image/png;base64,' + trimmed;
+                        }
+                        return trimmed;
+                    };
+
+                    // If brands empty, try top-level PRELOADED_DATA.brands fallback
+                    if ((!brands || brands.length === 0) && Array.isArray(window.PRELOADED_DATA.brands)) brands = window.PRELOADED_DATA.brands;
+
+                    const productsFromBrands = [];
+                    // FORCE RENDER FIX: loop through data.brands and extract collections and items
+                    // Use batching to avoid freezing the UI for large files
+                    const BATCH_SIZE = 50;
+                    for (let bi = 0; bi < (brands || []).length; bi++) {
+                        const brand = brands[bi];
+                        try {
+                            // prefer multilingual names: brand.name.en || brand.name.fa
+                            normalizeNameObject(brand);
+                            const displayName = (brand && brand.name) ? (brand.name.en || brand.name.fa || '') : '';
+                            if (displayName) brand.displayName = displayName;
+                            const brandId = brand.id || brand.brandId || null;
+                            if (brand.logo && typeof brand.logo === 'string') brand.logo = fixBase64Image(brand.logo);
+
+                            // direct items
+                            if (Array.isArray(brand.items)) {
+                                for (const it of brand.items) {
+                                    try {
+                                        normalizeNameObject(it);
+                                        it.displayName = (it.name && (it.name.en || it.name.fa)) || it.displayName || '';
+                                        it.brandId = it.brandId || brandId;
+                                        if (it.image && typeof it.image === 'string') it.image = fixBase64Image(it.image);
+                                        productsFromBrands.push(it);
+                                    } catch(e){}
+                                }
+                            }
+                            // direct products
+                            if (Array.isArray(brand.products)) {
+                                for (const it of brand.products) {
+                                    try {
+                                        normalizeNameObject(it);
+                                        it.displayName = (it.name && (it.name.en || it.name.fa)) || it.displayName || '';
+                                        it.brandId = it.brandId || brandId;
+                                        if (it.image && typeof it.image === 'string') it.image = fixBase64Image(it.image);
+                                        productsFromBrands.push(it);
+                                    } catch(e){}
+                                }
+                            }
+                            // collections -> items/products
+                            if (Array.isArray(brand.collections)) {
+                                for (const col of brand.collections) {
+                                    const categoryId = col.id || col.categoryId || null;
+                                    if (Array.isArray(col.items)) {
+                                        for (const it of col.items) {
+                                            try {
+                                                normalizeNameObject(it);
+                                                it.displayName = (it.name && (it.name.en || it.name.fa)) || it.displayName || '';
+                                                it.brandId = it.brandId || brandId;
+                                                it.categoryId = it.categoryId || categoryId;
+                                                if (it.image && typeof it.image === 'string') it.image = fixBase64Image(it.image);
+                                                productsFromBrands.push(it);
+                                            } catch(e){}
+                                        }
+                                    }
+                                    if (Array.isArray(col.products)) {
+                                        for (const it of col.products) {
+                                            try {
+                                                normalizeNameObject(it);
+                                                it.displayName = (it.name && (it.name.en || it.name.fa)) || it.displayName || '';
+                                                it.brandId = it.brandId || brandId;
+                                                it.categoryId = it.categoryId || categoryId;
+                                                if (it.image && typeof it.image === 'string') it.image = fixBase64Image(it.image);
+                                                productsFromBrands.push(it);
+                                            } catch(e){}
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (e) { console.warn('forceRender: brand loop error', e); }
+
+                        // Yield every BATCH_SIZE iterations to keep UI responsive
+                        if (bi % BATCH_SIZE === 0) await new Promise(res => setTimeout(res, 0));
+                    }
+
+                    // write to DB (clear then insert)
+                    await Promise.all([dbClear(STORES.BRANDS), dbClear(STORES.CATEGORIES), dbClear(STORES.PRODUCTS), dbClear(STORES.CONFIG)]);
+                    if (brands.length) {
+                        await Promise.all(brands.map(b => { try { normalizeNameObject(b); if (b.logo && typeof b.logo === 'string') b.logo = fixBase64Image(b.logo); } catch(e){} return dbPut(STORES.BRANDS, b); }));
+                    }
+                    if (categories.length) await Promise.all(categories.map(c => { try { normalizeNameObject(c); } catch(e){} return dbPut(STORES.CATEGORIES, c); }));
+                    if (productsFromBrands.length) await Promise.all(productsFromBrands.map(p => { try { normalizeNameObject(p); } catch(e){} return dbPut(STORES.PRODUCTS, p); }));
+
+                    // persist config if present
+                    if (srcRoot.config) {
+                        try {
+                            await dbPut(STORES.CONFIG, { key: 'app_title', value: srcRoot.config.app_title || '' });
+                            await dbPut(STORES.CONFIG, { key: 'welcome_images', value: srcRoot.config.welcome_images || [] });
+                            await dbPut(STORES.CONFIG, { key: 'welcome_video', value: srcRoot.config.welcome_video || null });
+                        } catch(e) { console.warn('forceRender: failed writing config', e); }
+                    }
+                    console.info('forceRender: imported brands/products into IndexedDB (brands,products)', (brands||[]).length, productsFromBrands.length);
+                    // Reload to let React re-read the DB and render
+                    try { window.location.reload(); } catch(e) { console.warn('forceRender reload failed', e); }
+                } catch (err) { console.warn('forceRenderFromBrands error', err); }
+            };
 
             // run automatically but defer to allow DB initialization
             window.addEventListener('load', () => {
@@ -1784,47 +2541,6 @@ python -m http.server 8080
                     }
                 };
 
-                const unregisterServiceWorkersAndClearCaches = async () => {
-                    try {
-                        if (!('serviceWorker' in navigator)) {
-                            addToast('Service Worker not supported in this browser.', 'warning');
-                            return { error: 'no-sw' };
-                        }
-                        const regs = await navigator.serviceWorker.getRegistrations();
-                        if (!regs || !regs.length) {
-                            addToast('No Service Worker registrations found.', 'info');
-                        }
-                        const results = [];
-                        for (const r of regs) {
-                            try {
-                                const ok = await r.unregister();
-                                results.push({ scope: r.scope, unregistered: !!ok });
-                            } catch (e) {
-                                results.push({ scope: r.scope, error: String(e) });
-                            }
-                        }
-                        let deleted = [];
-                        if (window.caches && caches.keys) {
-                            try {
-                                const keys = await caches.keys();
-                                for (const k of keys) {
-                                    try {
-                                        const ok = await caches.delete(k);
-                                        if (ok) deleted.push(k);
-                                    } catch (e) {}
-                                }
-                            } catch (e) {}
-                        }
-                        addToast('Service Workers unregistered and caches cleared.', 'success');
-                        console.log('unregister results', results, 'deleted caches', deleted);
-                        return { deleted };
-                    } catch (e) {
-                        console.error('unregister Service Workers failed', e);
-                        addToast('Failed to unregister SW or clear caches: ' + (e.message || e), 'error');
-                        return { error: String(e) };
-                    }
-                };
-
                 return (
                     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-start justify-center z-50 p-4 pt-16 sm:pt-24" onClick={onClose}>
                         <div className="bg-white dark:bg-slate-800/80 backdrop-blur-xl ring-1 dark:ring-white/10 rounded-lg shadow-2xl w-full max-w-md flex flex-col animate-slide-up" onClick={e => e.stopPropagation()}>
@@ -2165,7 +2881,7 @@ python -m http.server 8080
                                 <div
                                     key={index}
                                     className={`hero-bg-slide ${index === currentImageIndex ? 'visible' : ''}`}
-                                    style={ image ? { backgroundImage: `url(${image})` } : undefined }
+                                            style={ image ? { backgroundImage: `url(${image})` } : undefined }
                                 />
                             ))
                         )}
@@ -2311,6 +3027,15 @@ python -m http.server 8080
             function HomePageContent({ brands, categories, setView, isManagementMode, openModal, openConfirm, handleDelete, lang, welcomeVideo }) {
                 const [selectedBrandId, setSelectedBrandId] = useState(null);
                 const [selectedBrand, setSelectedBrand] = useState(null);
+                // Lazy-render control: only render first N brands and load more on scroll
+                const BATCH_SIZE = 12;
+                const [visibleCount, setVisibleCount] = useState(BATCH_SIZE);
+                const brandsContainerRef = useRef(null);
+
+                const visibleBrands = useMemo(() => {
+                    if (!Array.isArray(brands)) return [];
+                    return brands.slice(0, visibleCount);
+                }, [brands, visibleCount]);
                 const categoriesContainerRef = useRef(null);
                 const brandInfoRef = useRef(null);
 
@@ -2328,15 +3053,66 @@ python -m http.server 8080
                     }
                 }, [brands, selectedBrand]);
 
+                // When first few brands are available, remove any initial loading UI and debug panel
+                useEffect(() => {
+                    try {
+                        const checkAndHide = () => {
+                            const src = Array.isArray(brands) && brands.length ? brands : (window.PRELOADED_DATA && window.PRELOADED_DATA.data && window.PRELOADED_DATA.data.brands) || [];
+                            if (!src || src.length === 0) return;
+                            // If at least 5 items exist, remove loading overlay and debug panel
+                            if (src.length >= 5 || visibleBrands.length >= 5) {
+                                try {
+                                    // Remove legacy loading node inside #root if present
+                                    const root = document.getElementById('root');
+                                    if (root) {
+                                        const firstChild = root.firstElementChild;
+                                        if (firstChild && firstChild.textContent && firstChild.textContent.indexOf('Loading Catalog') !== -1) {
+                                            firstChild.remove();
+                                        }
+                                    }
+                                } catch (e) {}
+                                try {
+                                    const dbg = document.getElementById('debug-brands-panel');
+                                    if (dbg && dbg.parentNode) dbg.parentNode.removeChild(dbg);
+                                } catch (e) {}
+                            }
+                        };
+                        checkAndHide();
+                    } catch (e) { /* ignore */ }
+                }, [brands, visibleBrands]);
+
                 const filteredCategories = useMemo(() => {
                     if (!selectedBrandId) return [];
                     return categories.filter(c => c.brandId === selectedBrandId);
                 }, [categories, selectedBrandId]);
 
+                const getBrandImageSrc = (b) => {
+                    if (!b) return null;
+                    let src = null;
+                    try { if (b && typeof b.logo === 'string') src = b.logo; } catch(e){}
+                    try { if (!src && b && typeof b.image === 'string') src = b.image; } catch(e){}
+                    try { if (!src && b && Array.isArray(b.items) && b.items[0] && typeof b.items[0].image === 'string') src = b.items[0].image; } catch(e){}
+                    if (!src) return null;
+                    const s = src.trim();
+                    if (s.startsWith('data:')) return s;
+                    // detect base64 without data: prefix (common in backups)
+                    if (/^(?:[A-Za-z0-9+/]{100,}={0,2})$/.test(s) || /^(?:\/9j\/|iVBOR|R0lGOD)/.test(s)) {
+                        return 'data:image/png;base64,' + s;
+                    }
+                    return s;
+                };
+
                 const handleBrandClick = async (brandId) => {
                     setSelectedBrandId(brandId);
-                    const brandData = await dbGet(STORES.BRANDS, brandId);
-                    setSelectedBrand(brandData);
+                    try {
+                        // Prefer in-memory brands prop (sourced from PRELOADED_DATA)
+                        const source = Array.isArray(brands) && brands.length ? brands : (window.PRELOADED_DATA && window.PRELOADED_DATA.data && window.PRELOADED_DATA.data.brands) || [];
+                        const brandData = source.find(b => b.id === brandId) || null;
+                        setSelectedBrand(brandData);
+                    } catch (e) {
+                        console.warn('handleBrandClick error', e);
+                        setSelectedBrand(null);
+                    }
                     setTimeout(() => {
                         brandInfoRef.current?.scrollIntoView({
                             behavior: 'smooth',
@@ -2345,25 +3121,60 @@ python -m http.server 8080
                     }, 100);
                 };
 
+                // Infinite-style lazy loading: increase visibleCount when near bottom
+                useEffect(() => {
+                    const el = brandsContainerRef.current || window;
+                    let ticking = false;
+                    const onScroll = () => {
+                        if (ticking) return;
+                        ticking = true;
+                        requestAnimationFrame(() => {
+                            try {
+                                let atBottom = false;
+                                if (brandsContainerRef.current) {
+                                    const rect = brandsContainerRef.current.getBoundingClientRect();
+                                    atBottom = (rect.bottom - window.innerHeight) < 300; // near bottom
+                                } else {
+                                    atBottom = (window.innerHeight + window.scrollY) >= (document.body.offsetHeight - 400);
+                                }
+                                if (atBottom && visibleCount < (brands ? brands.length : 0)) {
+                                    setVisibleCount((v) => Math.min((brands ? brands.length : 0), v + BATCH_SIZE));
+                                }
+                            } catch (e) { /* ignore */ }
+                            ticking = false;
+                        });
+                    };
+                    try {
+                        (brandsContainerRef.current || window).addEventListener('scroll', onScroll, { passive: true });
+                        window.addEventListener('scroll', onScroll, { passive: true });
+                    } catch (e) {}
+                    return () => {
+                        try { (brandsContainerRef.current || window).removeEventListener('scroll', onScroll); } catch(e){}
+                        try { window.removeEventListener('scroll', onScroll); } catch(e){}
+                    };
+                }, [visibleCount, brands]);
+
                 return (
                     <>
                         <WelcomeVideoSection videoSrc={welcomeVideo} />
                         <div className="py-12">
                             <div className="max-w-screen-xl mx-auto px-4 sm:px-6 lg:px-8">
-                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                                    {brands.map((brand, index) => (
+                                <div ref={brandsContainerRef} className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                                    {visibleBrands.map((brand, index) => (
                                         <AnimatedWrapper key={brand.id} index={index}>
                                             <div
                                                 onClick={() => handleBrandClick(brand.id)}
                                                 className={`group relative aspect-square transition-all duration-300 cursor-pointer rounded-lg overflow-hidden shadow-xl dark:shadow-[0_15px_30px_rgba(0,0,0,0.6)] hover:shadow-2xl dark:hover:shadow-[0_20px_40px_rgba(59,130,246,0.5)] ring-2 ${selectedBrandId === brand.id ? 'ring-blue-500 scale-105' : 'ring-transparent opacity-80 hover:opacity-100 hover:scale-105 hover:shadow-blue-500/40'}`}
                                             >
-                                                <div className="absolute inset-0 bg-white dark:bg-slate-800 flex items-center justify-center p-4">
-                                                    {brand.logo ? (
-                                                        <img src={brand.logo} alt={getLocalizedTitle(brand.name, 'en')} className="max-w-full max-h-full object-contain transition-transform duration-300 group-hover:scale-105" />
-                                                    ) : (
-                                                        <BuildingStorefrontIcon className="w-1/2 h-1/2 text-slate-400 dark:text-slate-500 transition-transform duration-300 group-hover:scale-105" />
-                                                    )}
-                                                </div>
+                                                                <div className="absolute inset-0 bg-white dark:bg-slate-800 flex items-center justify-center p-4">
+                                                                    {(() => {
+                                                                        const imgSrc = getBrandImageSrc(brand);
+                                                                        if (imgSrc) {
+                                                                            return (<img loading="lazy" src={imgSrc} alt={getLocalizedTitle(brand.name, 'en')} className="max-w-full max-h-full object-contain transition-transform duration-300 group-hover:scale-105" />);
+                                                                        }
+                                                                        return (<BuildingStorefrontIcon className="w-1/2 h-1/2 text-slate-400 dark:text-slate-500 transition-transform duration-300 group-hover:scale-105" />);
+                                                                    })()}
+                                                                </div>
                                                 <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent">
                                                     <h3 className="text-sm font-bold text-white text-center truncate">
                                                         {getLocalizedTitle(brand.name, 'en', TRANSLATIONS.untitled)}
@@ -2393,6 +3204,10 @@ python -m http.server 8080
                                             </div>
                                         </AnimatedWrapper>
                                     ))}
+                                    {/* Load-more indicator */}
+                                    {visibleCount < (brands ? brands.length : 0) && (
+                                        <div className="col-span-full text-center py-4 text-sm text-slate-500">Scroll to load more brands…</div>
+                                    )}
                                     {isManagementMode && (
                                         <AnimatedWrapper index={brands.length}>
                                             <div
@@ -2769,6 +3584,9 @@ python -m http.server 8080
 
                 const fetchData = useCallback(async () => {
                     setIsLoading(true);
+                    if (window.PRELOADED_DATA_PROMISE) {
+                        try { await window.PRELOADED_DATA_PROMISE; } catch(e) { console.warn('PRELOADED_DATA_PROMISE error', e); }
+                    }
                     const [p, b, c] = await Promise.all([
                         dbGetAll(STORES.PRODUCTS),
                         dbGetAll(STORES.BRANDS),
@@ -3111,6 +3929,82 @@ python -m http.server 8080
                             out.indexedDBError = String(e);
                         }
 
+                        // Try to embed hero media (if configured) into this browser backup for easier debugging/sharing
+                        try {
+                            const cfg = (out.indexedDB && out.indexedDB.config) || [];
+                            const heroItem = cfg.find(it => it && it.key === 'hero_media_block');
+                            if (heroItem && heroItem.value && heroItem.value.mediaUrl) {
+                                let heroUrl = heroItem.value.mediaUrl;
+                                if (typeof heroUrl !== 'string') heroUrl = String(heroUrl || '');
+                                heroUrl = heroUrl.trim();
+                                // Skip empty or literal "null" strings that may come from imported backups
+                                if (!heroUrl || heroUrl.toLowerCase() === 'null') {
+                                    console.warn('Skipping invalid hero media URL:', heroUrl);
+                                } else {
+                                const MAX_EMBED_BYTES = 12 * 1024 * 1024; // 12MB
+
+                                const readBufferToDataUrl = (buf, srcUrl) => {
+                                    if (!buf) return null;
+                                    if (buf.byteLength > MAX_EMBED_BYTES) return null;
+                                    let binary = '';
+                                    const bytes = new Uint8Array(buf);
+                                    const chunkSize = 0x8000;
+                                    for (let i = 0; i < bytes.length; i += chunkSize) {
+                                        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+                                    }
+                                    const b64 = btoa(binary);
+                                    const ext = (srcUrl.split('.').pop() || '').toLowerCase();
+                                    const mime = ext === 'mp4' ? 'video/mp4' : ext === 'webm' ? 'video/webm' : 'application/octet-stream';
+                                    return `data:${mime};base64,${b64}`;
+                                };
+
+                                const tryFetch = async (u, options = {}) => {
+                                    try {
+                                        const resp = await fetch(u, options);
+                                        if (!resp || !resp.ok) return null;
+                                        const buf = await resp.arrayBuffer();
+                                        return readBufferToDataUrl(buf, u);
+                                    } catch (e) {
+                                        return null;
+                                    }
+                                };
+
+                                // build candidates
+                                const candidates = [heroUrl];
+                                try {
+                                    if (heroUrl.startsWith('/') && (/^\/(uploaded_media|deploy|assets)\//.test(heroUrl))) {
+                                        const v = './' + heroUrl.replace(/^\/+/, '');
+                                        candidates.push(v);
+                                    } else if (heroUrl.startsWith('/')) {
+                                        candidates.push(window.location.origin + heroUrl);
+                                    }
+                                    const resolved = new URL(heroUrl, window.location.href).href;
+                                    if (!candidates.includes(resolved)) candidates.push(resolved);
+                                } catch (e) { /* ignore */ }
+                                if (heroUrl.includes('uploaded_media') && !heroUrl.startsWith('/')) {
+                                    const withOrigin = new URL(heroUrl, window.location.href).href;
+                                    candidates.push(withOrigin);
+                                }
+
+                                let dataUrl = null;
+                                for (const c of candidates) {
+                                    dataUrl = await tryFetch(c, { cache: 'no-store' });
+                                    if (dataUrl) break;
+                                }
+
+                                if (dataUrl) {
+                                    out._embedded_media = out._embedded_media || {};
+                                    out._embedded_media.hero_video = { src: heroUrl, dataUrl };
+                                    addToast('Included hero video in browser backup (debug).', 'info');
+                                } else {
+                                    console.warn('Could not fetch hero media for embedding. Tried:', candidates);
+                                }
+                                }
+                            }
+                        } catch (e) {
+                            console.warn('Embedding hero media into browser backup failed', e);
+                        }
+
                         const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
                         const url = URL.createObjectURL(blob);
                         const a = document.createElement('a');
@@ -3125,6 +4019,52 @@ python -m http.server 8080
                     } catch (e) {
                         console.error('exportBrowserBackup error', e);
                         addToast('Failed to create browser backup: ' + (e.message || e), 'error');
+                    }
+                };
+
+                const unregisterServiceWorkersAndClearCaches = async () => {
+                    try {
+                        if (!('serviceWorker' in navigator)) {
+                            addToast('Service Worker not supported in this browser.', 'warning');
+                            return { error: 'no-sw' };
+                        }
+                        const regs = await navigator.serviceWorker.getRegistrations();
+                        if (!regs || !regs.length) {
+                            addToast('No Service Worker registrations found.', 'info');
+                        }
+                        const results = [];
+                        for (const r of regs) {
+                            try {
+                                const ok = await r.unregister();
+                                results.push({ scope: r.scope, unregistered: !!ok });
+                            } catch (e) {
+                                results.push({ scope: r.scope, error: String(e) });
+                            }
+                        }
+                        // Attempt to clear caches used by the site (non-destructive best-effort)
+                        let deleted = [];
+                        if (window.caches && caches.keys) {
+                            try {
+                                const keys = await caches.keys();
+                                for (const k of keys) {
+                                    try {
+                                        const ok = await caches.delete(k);
+                                        if (ok) deleted.push(k);
+                                    } catch (e) {
+                                        // ignore per-cache errors
+                                    }
+                                }
+                            } catch (e) {
+                                console.warn('Failed listing caches', e);
+                            }
+                        }
+                        addToast('Service Workers unregistered and caches cleared.', 'success');
+                        console.log('unregister results', results, 'deleted caches', deleted);
+                        return { deleted };
+                    } catch (e) {
+                        console.error('unregisterServiceWorkersAndClearCaches failed', e);
+                        addToast('Failed to unregister SW or clear caches: ' + (e.message || e), 'error');
+                        return { error: String(e) };
                     }
                 };
 
@@ -3184,7 +4124,7 @@ python -m http.server 8080
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <div className="flex gap-2">
                                         <button className="px-3 py-2 bg-blue-600 text-white rounded" onClick={() => handleExportBrowserBackup()}>Export Browser Backup</button>
-                                        <button className="px-3 py-2 bg-yellow-600 text-white rounded" onClick={async () => { if (typeof unregisterServiceWorkersAndClearCaches === 'function') { await unregisterServiceWorkersAndClearCaches(); addToast('You can now refresh and re-run Export.', 'info'); } else { addToast('Unregister helper unavailable.', 'warning'); } }}>Unregister SW & Clear Caches</button>
+                                        <button className="px-3 py-2 bg-yellow-600 text-white rounded" onClick={async () => { await unregisterServiceWorkersAndClearCaches(); addToast('You can now refresh the page and re-run Export.', 'info'); }}>Unregister SW & Clear Caches</button>
                                     </div>
                                     <button className="px-3 py-2 bg-yellow-600 text-white rounded" onClick={() => handleRequestSwStats()}>Get SW Stats</button>
                                     <button className="px-3 py-2 bg-red-600 text-white rounded" onClick={() => handleCleanOldCaches()}>Clear Old Caches</button>
@@ -3834,7 +4774,7 @@ python -m http.server 8080
 
                 return (
                     <div className="h-full w-full flex flex-col bg-slate-100 dark:bg-slate-950">
-                        {/* BREADCRUMB NAVIGATION */}
+                            {/* BREADCRUMB NAVIGATION */}
                             <div className="flex-shrink-0 bg-white/60 dark:bg-slate-900/60 backdrop-blur-lg shadow-sm p-3 px-4 sm:px-6 lg:px-8 z-10"
                                 style={{ position: 'sticky', top: 'env(safe-area-inset-top, 0px)', paddingTop: 'env(safe-area-inset-top, 0px)' }}>
                             <div className="flex items-center text-sm text-slate-600 dark:text-slate-400 overflow-x-auto whitespace-nowrap">
@@ -4733,68 +5673,6 @@ python -m http.server 8080
                     addToast("Showroom Mode Activated", "success");
                 }, [addToast]);
 
-                // Automatic cache-invalidation: check remote backup headers (ETag/Last-Modified)
-                useEffect(() => {
-                    let stop = false;
-                        async function checkRemote() {
-                            try {
-                                console.debug('[checkRemote] attempting HEAD deploy/catalog_backup_lazy_2026-01-01T12-59-15-517Z.json');
-                                try {
-                                    const head = await fetch('deploy/catalog_backup_lazy_2026-01-01T12-59-15-517Z.json', { method: 'HEAD', cache: 'no-store' });
-                                    if (head && head.ok) {
-                                        const etag = head.headers.get('etag') || head.headers.get('last-modified');
-                                        if (etag) {
-                                            const stored = localStorage.getItem('catalog_backup_etag');
-                                            if (stored !== etag) {
-                                                console.info('[checkRemote] detected new etag/version', { previous: stored, current: etag });
-                                                localStorage.setItem('catalog_backup_etag', etag);
-                                                console.debug('[checkRemote] calling reloadRemoteBackup() (etag changed)');
-                                                await reloadRemoteBackup();
-                                                console.debug('[checkRemote] reloadRemoteBackup() finished (etag)');
-                                            } else {
-                                                console.debug('[checkRemote] etag unchanged');
-                                            }
-                                            return;
-                                        }
-                                    }
-                                } catch (h) {
-                                    console.debug('[checkRemote] HEAD failed, will fetch JSON', h && h.message ? h.message : h);
-                                }
-
-                                // Fallback: fetch the JSON and compare `catalog_version`
-                                console.debug('[checkRemote] fetching JSON deploy/catalog_backup_lazy_2026-01-01T12-59-15-517Z.json for version compare');
-                                const resp = await fetch('deploy/catalog_backup_lazy_2026-01-01T12-59-15-517Z.json', { cache: 'no-store' });
-                                if (!resp.ok) { console.debug('[checkRemote] JSON fetch not ok', resp.status); return; }
-                                const j = await resp.json();
-                                const remoteVer = j && j.catalog_version ? j.catalog_version : null;
-                                if (!remoteVer) { console.debug('[checkRemote] remote JSON has no catalog_version'); return; }
-                                const storedVer = localStorage.getItem('catalog_backup_version');
-                                if (storedVer !== remoteVer) {
-                                    console.info('[checkRemote] detected new catalog_version', { previous: storedVer, current: remoteVer });
-                                    localStorage.setItem('catalog_backup_version', remoteVer);
-                                    try { const et = resp.headers.get && resp.headers.get('etag'); if (et) localStorage.setItem('catalog_backup_etag', et); } catch(e){}
-                                    console.debug('[checkRemote] calling reloadRemoteBackup() (version changed)');
-                                    await reloadRemoteBackup();
-                                    console.debug('[checkRemote] reloadRemoteBackup() finished (version)');
-                                } else {
-                                    console.debug('[checkRemote] catalog_version unchanged');
-                                }
-                            } catch (e) {
-                                console.warn('Remote backup check failed:', e && (e.message || e));
-                            }
-                        }
-                    checkRemote();
-                    const t = setInterval(checkRemote, 5 * 60 * 1000);
-                    // Also trigger checks when page becomes visible/focused or when network returns
-                    const onVisible = () => { if (document.visibilityState === 'visible') checkRemote(); };
-                    const onFocus = () => { checkRemote(); };
-                    const onOnline = () => { checkRemote(); };
-                    document.addEventListener('visibilitychange', onVisible);
-                    window.addEventListener('focus', onFocus);
-                    window.addEventListener('online', onOnline);
-                    return () => { stop = true; clearInterval(t); document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('focus', onFocus); window.removeEventListener('online', onOnline); };
-                }, [reloadRemoteBackup]);
-
                 const handleExitManagementClick = useCallback(() => {
                     clearTimeout(exitManagementTimeoutRef.current);
                     exitManagementClickCountRef.current += 1;
@@ -4834,47 +5712,125 @@ python -m http.server 8080
 
                     try {
                         if (newView.type === 'brands') {
-                            const [brands, categories, products] = await Promise.all([
-                                dbGetAll(STORES.BRANDS),
-                                dbGetAll(STORES.CATEGORIES),
-                                dbGetAll(STORES.PRODUCTS)
-                            ]);
-                            const categoriesWithImages = categories.map(cat => ({
-                                ...cat,
-                                productImages: products
-                                    .filter(p => p.categoryId === cat.id && p.images && p.images.length > 0)
-                                    .slice(0, 4)
-                                    .map(p => p.images[0])
-                            }));
-                            setAllBrands(brands);
-                            setAllCategories(categoriesWithImages);
-                        } else if (newView.type === 'categories') {
-                            const [categories, products] = await Promise.all([
-                                dbGetByIndex(STORES.CATEGORIES, 'by_brand', newView.brandId),
-                                dbGetByIndex(STORES.PRODUCTS, 'by_brand', newView.brandId)
-                            ]);
-
-                            newItems = categories.map(cat => ({
-                                ...cat,
-                                productImages: products
-                                    .filter(p => p.categoryId === cat.id && p.images && p.images.length > 0)
-                                    .slice(0, 4)
-                                    .map(p => p.images[0])
-                            }));
-                            const brand = await dbGet(STORES.BRANDS, newView.brandId);
-                            if (brand) newBreadcrumbs.push({ type: 'brand', id: brand.id, name: brand.name });
-                        } else if (newView.type === 'products') {
-                            newItems = await dbGetByIndex(STORES.PRODUCTS, 'by_category', newView.categoryId);
-                            // Ensure products are shown in insertion order when possible
-                            if (Array.isArray(newItems)) {
-                                newItems.sort((a, b) => (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0));
+                            // Prefer PRELOADED_DATA when available to avoid heavy DB reads and prevent UI freezes.
+                            if (window.PRELOADED_DATA && window.PRELOADED_DATA.data && Array.isArray(window.PRELOADED_DATA.data.brands)) {
+                                try {
+                                    const brands = window.PRELOADED_DATA.data.brands || [];
+                                    const products = (window.PRELOADED_DATA.data.products) ? window.PRELOADED_DATA.data.products : [];
+                                    const categories = (window.PRELOADED_DATA.data.categories) ? window.PRELOADED_DATA.data.categories : [];
+                                    const categoriesWithImages = categories.map(cat => ({
+                                        ...cat,
+                                        productImages: products
+                                            .filter(p => p.categoryId === cat.id && p.images && p.images.length > 0)
+                                            .slice(0, 4)
+                                            .map(p => p.images[0])
+                                    }));
+                                    setAllBrands(brands);
+                                    setAllCategories(categoriesWithImages);
+                                    // Remove initial loading overlay as soon as first batch is set
+                                    try { setIsLoading(false); } catch (e) {}
+                                } catch (e) {
+                                    console.warn('refreshView: error using PRELOADED_DATA', e);
+                                }
+                            } else {
+                                const [brands, categories, products] = await Promise.all([
+                                    dbGetAll(STORES.BRANDS),
+                                    dbGetAll(STORES.CATEGORIES),
+                                    dbGetAll(STORES.PRODUCTS)
+                                ]);
+                                const categoriesWithImages = categories.map(cat => ({
+                                    ...cat,
+                                    productImages: products
+                                        .filter(p => p.categoryId === cat.id && p.images && p.images.length > 0)
+                                        .slice(0, 4)
+                                        .map(p => p.images[0])
+                                }));
+                                setAllBrands(brands);
+                                setAllCategories(categoriesWithImages);
                             }
-                            const brand = await dbGet(STORES.BRANDS, newView.brandId);
-                            const category = await dbGet(STORES.CATEGORIES, newView.categoryId);
-                            if (brand) newBreadcrumbs.push({ type: 'brand', id: brand.id, name: brand.name });
-                            if (category) newBreadcrumbs.push({ type: 'category', id: category.id, name: category.name, context: { brandId: brand.id } });
+                        } else if (newView.type === 'categories') {
+                            // Prefer PRELOADED_DATA when available
+                            if (window.PRELOADED_DATA && window.PRELOADED_DATA.data) {
+                                const data = window.PRELOADED_DATA.data;
+                                const allCategories = Array.isArray(data.categories) ? data.categories : [];
+                                const allProducts = Array.isArray(data.products) ? data.products : [];
+                                // categories for this brand
+                                const categories = allCategories.filter(c => c.brandId === newView.brandId);
+                                // fallback: derive categories from products if categories missing
+                                if (categories.length === 0) {
+                                    const catsFromProducts = allProducts.filter(p => p.brandId === newView.brandId && p.categoryId).map(p => p.categoryId);
+                                    const uniqueCatIds = Array.from(new Set(catsFromProducts));
+                                    for (const cid of uniqueCatIds) {
+                                        const found = allCategories.find(c => c.id === cid);
+                                        if (found) categories.push(found);
+                                    }
+                                }
+
+                                newItems = categories.map(cat => ({
+                                    ...cat,
+                                    productImages: allProducts
+                                        .filter(p => p.categoryId === cat.id && p.images && p.images.length > 0)
+                                        .slice(0, 4)
+                                        .map(p => p.images[0])
+                                }));
+                                const brand = (Array.isArray(data.brands) ? data.brands.find(b => b.id === newView.brandId) : null);
+                                if (brand) newBreadcrumbs.push({ type: 'brand', id: brand.id, name: brand.name });
+                            } else {
+                                const [categories, products] = await Promise.all([
+                                    dbGetByIndex(STORES.CATEGORIES, 'by_brand', newView.brandId),
+                                    dbGetByIndex(STORES.PRODUCTS, 'by_brand', newView.brandId)
+                                ]);
+
+                                newItems = categories.map(cat => ({
+                                    ...cat,
+                                    productImages: products
+                                        .filter(p => p.categoryId === cat.id && p.images && p.images.length > 0)
+                                        .slice(0, 4)
+                                        .map(p => p.images[0])
+                                }));
+                                const brand = await dbGet(STORES.BRANDS, newView.brandId);
+                                if (brand) newBreadcrumbs.push({ type: 'brand', id: brand.id, name: brand.name });
+                            }
+                        } else if (newView.type === 'products') {
+                            if (window.PRELOADED_DATA && window.PRELOADED_DATA.data) {
+                                const data = window.PRELOADED_DATA.data;
+                                const allProducts = Array.isArray(data.products) ? data.products : [];
+                                newItems = allProducts.filter(p => p.categoryId === newView.categoryId);
+                                // Ensure order
+                                if (Array.isArray(newItems)) newItems.sort((a,b) => (Number(a.createdAt)||0) - (Number(b.createdAt)||0));
+                                const brand = (Array.isArray(data.brands) ? data.brands.find(b => b.id === newView.brandId) : null);
+                                const category = (Array.isArray(data.categories) ? data.categories.find(c => c.id === newView.categoryId) : null);
+                                if (brand) newBreadcrumbs.push({ type: 'brand', id: brand.id, name: brand.name });
+                                if (category) newBreadcrumbs.push({ type: 'category', id: category.id, name: category.name, context: { brandId: brand.id } });
+                            } else {
+                                newItems = await dbGetByIndex(STORES.PRODUCTS, 'by_category', newView.categoryId);
+                                // Ensure products are shown in insertion order when possible
+                                if (Array.isArray(newItems)) {
+                                    newItems.sort((a, b) => (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0));
+                                }
+                                const brand = await dbGet(STORES.BRANDS, newView.brandId);
+                                const category = await dbGet(STORES.CATEGORIES, newView.categoryId);
+                                if (brand) newBreadcrumbs.push({ type: 'brand', id: brand.id, name: brand.name });
+                                if (category) newBreadcrumbs.push({ type: 'category', id: category.id, name: category.name, context: { brandId: brand.id } });
+                            }
                         } else if (newView.type === 'productDetail') {
-                            let product = await dbGet(STORES.PRODUCTS, newView.productId);
+                            let product = null;
+                            if (window.PRELOADED_DATA && window.PRELOADED_DATA.data) {
+                                const data = window.PRELOADED_DATA.data;
+                                product = (Array.isArray(data.products) ? data.products.find(p => p.id === newView.productId) : null) || null;
+                                if (!product) {
+                                    // try to recover from brands collections
+                                    const brands = Array.isArray(data.brands) ? data.brands : [];
+                                    for (const b of brands) {
+                                        if (Array.isArray(b.items)) {
+                                            const found = b.items.find(it => it.id === newView.productId || it.id === (newView.productId || ''));
+                                            if (found) { product = found; break; }
+                                        }
+                                    }
+                                }
+                            } else {
+                                product = await dbGet(STORES.PRODUCTS, newView.productId);
+                            }
                             // Conservative cleanup for single product view: only clean Persian name
                             if (product) {
                                 try {
@@ -4882,6 +5838,41 @@ python -m http.server 8080
                                 } catch (e) {
                                     // ignore
                                 }
+
+                                // Also try ASCII/Latin nested folders commonly used in uploaded_media (boloc2, boloc-2, boloc3, etc.)
+                                try {
+                                    const basename = (url || '').split('/').pop().split('?')[0];
+                                    if (basename) {
+                                        const asciiFolders = ['boloc2','boloc-2','boloc2','boloc3','boloc-3','bloc2','bloc3'];
+                                        const basenameNoExt = basename.replace(/\.[^.]+$/, '');
+                                        for (const af of asciiFolders) {
+                                            const withOrigin = new URL('uploaded_media/' + af + '/' + basename, window.location.href).href;
+                                            if (!candidates.includes(withOrigin)) candidates.push(withOrigin);
+                                            const withoutOrigin = 'uploaded_media/' + af + '/' + basename;
+                                            if (!candidates.includes(withoutOrigin)) candidates.push(withoutOrigin);
+
+                                            const withOriginNoExt = new URL('uploaded_media/' + af + '/' + basenameNoExt, window.location.href).href;
+                                            if (!candidates.includes(withOriginNoExt)) candidates.push(withOriginNoExt);
+                                            const withoutOriginNoExt = 'uploaded_media/' + af + '/' + basenameNoExt;
+                                            if (!candidates.includes(withoutOriginNoExt)) candidates.push(withoutOriginNoExt);
+                                        }
+                                    }
+                                } catch (e) { /* ignore */ }
+
+                                // If the URL is a basename or references uploaded_media, also
+                                // try localized subfolder variants (e.g. uploaded_media/بلوک ۲/...).
+                                try {
+                                    const basename = (url || '').split('/').pop().split('?')[0];
+                                    if (basename) {
+                                        const persianFolders = ['بلوک ۲', 'بلوک ۳'];
+                                        for (const pf of persianFolders) {
+                                            const withOrigin = new URL('uploaded_media/' + encodeURIComponent(pf) + '/' + encodeURIComponent(basename), window.location.href).href;
+                                            if (!candidates.includes(withOrigin)) candidates.push(withOrigin);
+                                            const withoutOrigin = 'uploaded_media/' + pf + '/' + basename;
+                                            if (!candidates.includes(withoutOrigin)) candidates.push(withoutOrigin);
+                                        }
+                                    }
+                                } catch (e) { /* ignore */ }
                             }
                             const brand = await dbGet(STORES.BRANDS, newView.brandId);
                             const category = await dbGet(STORES.CATEGORIES, newView.categoryId);
@@ -5002,29 +5993,76 @@ python -m http.server 8080
                         const storedMode = localStorage.getItem('isManagementMode') === 'true';
                         setIsManagementMode(storedMode);
 
-                        if (window.PRELOADED_DATA && !localStorage.getItem('catalog_preloaded_v1')) {
-                            setLoadingMessage("Setting up catalog for the first time...");
-                            const { data, config } = window.PRELOADED_DATA;
-                            if (!data || !config) {
-                                throw new Error("Preloaded data is in an invalid format.");
+                        if (window.PRELOADED_DATA) {
+                            // Use PRELOADED_DATA directly for initial render to avoid
+                            // processing the entire 50+MB backup into IndexedDB synchronously.
+                            try {
+                                setLoadingMessage("Setting up catalog for the first time...");
+                                const pd = window.PRELOADED_DATA;
+                                const data = pd && pd.data ? pd.data : (pd || {}).data || {};
+                                const config = pd && pd.config ? pd.config : (pd || {}).config || {};
+
+                                // Apply light normalization already done earlier, now populate UI state
+                                let brandsFromPreload = Array.isArray(data.brands) ? data.brands : [];
+                                let categoriesFromPreload = Array.isArray(data.categories) ? data.categories : [];
+
+                                // If preload contains products but no brands, derive simple brand entries
+                                try {
+                                    const prodArr = Array.isArray(data.products) ? data.products : [];
+                                    if ((!brandsFromPreload || brandsFromPreload.length === 0) && prodArr.length > 0) {
+                                        const brandMap = new Map();
+                                        for (const p of prodArr) {
+                                            try {
+                                                const bid = p.brandId || p.brand || ('brand-' + (p.brandId || (p.brand || 'unknown')));
+                                                if (!brandMap.has(bid)) {
+                                                    const nameObj = (p.brandName && typeof p.brandName === 'object') ? p.brandName : (p.brandName ? { en: String(p.brandName) } : { en: String(bid) });
+                                                    brandMap.set(bid, { id: bid, name: nameObj, logo: p.brandLogo || null, items: [] });
+                                                }
+                                                brandMap.get(bid).items.push(p);
+                                            } catch (e) { /* ignore bad product entries */ }
+                                        }
+                                        const derived = Array.from(brandMap.values());
+                                        if (derived.length) {
+                                            console.info('Derived', derived.length, 'brands from products (fallback)');
+                                            brandsFromPreload = derived;
+                                        }
+                                    }
+                                } catch (e) { console.warn('Deriving brands from products failed', e); }
+
+                                // Set UI state directly from preloaded data (lazy rendering will limit DOM cost)
+                                try { setAllBrands(brandsFromPreload); } catch (e) { console.warn('setAllBrands failed', e); }
+                                try { console.info('initializeApp: PRELOADED_DATA brands count =', Array.isArray(brandsFromPreload) ? brandsFromPreload.length : 0); } catch(e){}
+                                try { setAllCategories(categoriesFromPreload); } catch (e) { console.warn('setAllCategories failed', e); }
+                                try { setWelcomeImages(config.welcome_images || []); } catch(e){}
+                                try { setWelcomeVideo(config.welcome_video || null); } catch(e){}
+                                try { setWelcomeBackgroundType(config.welcome_background_type || 'photos'); } catch(e){}
+                                try { setWelcomeBackgroundVideo(config.welcome_background_video || null); } catch(e){}
+
+                                // Do not eagerly write all records to IndexedDB here; instead,
+                                // optionally schedule a background import in small chunks to avoid blocking.
+                                (async function importInBackground(items){
+                                    if (!Array.isArray(items) || items.length === 0) return;
+                                    try {
+                                        const chunkSize = 200;
+                                        for (let i = 0; i < items.length; i += chunkSize) {
+                                            const chunk = items.slice(i, i + chunkSize);
+                                            await Promise.all(chunk.map(item => dbPut(STORES.BRANDS, item)).map(p => p.catch(() => null)));
+                                            // small yield to event loop
+                                            await new Promise(r => setTimeout(r, 50));
+                                        }
+                                        console.info('Background import of brands completed (best-effort)');
+                                    } catch (err) { console.warn('Background import failed', err); }
+                                })(brandsFromPreload).catch(() => {});
+
+                                // mark preload flag so future loads are faster (optional)
+                                try { localStorage.setItem('catalog_preloaded_v1', 'true'); } catch(e){}
+
+                                // Immediately allow UI to render first batch and remove loading overlay
+                                try { setLoadingMessage(TRANSLATIONS.loading); } catch(e){}
+                                try { setIsLoading(false); } catch(e){}
+                            } catch (e) {
+                                console.warn('PRELOADED_DATA handling failed', e);
                             }
-
-                            await Promise.all(Object.values(STORES).map(dbClear));
-
-                            await Promise.all([
-                                ...data.brands.map(item => dbPut(STORES.BRANDS, item)),
-                                ...data.categories.map(item => dbPut(STORES.CATEGORIES, item)),
-                                ...data.products.map(item => dbPut(STORES.PRODUCTS, item)),
-                                dbPut(STORES.CONFIG, { key: 'app_title', value: config.app_title }),
-                                dbPut(STORES.CONFIG, { key: 'welcome_images', value: config.welcome_images }),
-                                dbPut(STORES.CONFIG, { key: 'welcome_video', value: config.welcome_video }),
-                                dbPut(STORES.CONFIG, { key: 'welcome_background_type', value: config.welcome_background_type }),
-                                dbPut(STORES.CONFIG, { key: 'welcome_background_video', value: config.welcome_background_video }),
-                                dbPut(STORES.CONFIG, { key: 'footer_info', value: config.footer_info }),
-                            ]);
-
-                            localStorage.setItem('catalog_preloaded_v1', 'true');
-                            setLoadingMessage(TRANSLATIONS.loading);
                         }
 
                         await runMigration();
@@ -5054,10 +6092,118 @@ python -m http.server 8080
                         ]);
                         setWelcomeImages(imagesConfig?.value || []);
                         setWelcomeVideo(videoConfig?.value || null);
+                        // If welcome video is not set, probe common uploaded_media locations (prefer nested boloc3)
+                        (async () => {
+                            try {
+                                if (!videoConfig?.value) {
+                                    const candidates = [
+                                        'uploaded_media/boloc3/boloc3.mp4',
+                                        'uploaded_media/boloc3.mp4',
+                                        'uploaded_media/boloc-3.mp4',
+                                        'uploaded_media/bloc3.mp4'
+                                    ];
+                                    for (const c of candidates) {
+                                        try {
+                                            const full = c.startsWith('http') ? c : new URL(c, window.location.href).href;
+                                            const res = await fetch(full, { method: 'HEAD', cache: 'no-store' });
+                                            if (res && res.ok) {
+                                                setWelcomeVideo(c);
+                                                try { await dbPut(STORES.CONFIG, { key: 'welcome_video', value: c }); } catch (e) { /* ignore */ }
+                                                console.log('Seeded welcome_video with', c);
+                                                break;
+                                            }
+                                        } catch (e) { /* ignore probe errors */ }
+                                    }
+                                }
+                            } catch (e) { /* ignore */ }
+                        })();
                         setWelcomeBackgroundType(bgTypeConfig?.value || 'photos');
                         setWelcomeBackgroundVideo(bgVideoConfig?.value || null);
                         setFooterSettings(footerConfig?.value || null);
-                        setHeroMediaBlock(heroBlockConfig?.value || null);
+                        // Ensure Block 2 (hero_media_block) has a usable video URL when missing.
+                        // Non-invasive: only seeds the config if hero block is empty. Tries canonical
+                        // filenames first, falls back to common mistyped names present in the repo.
+                        let seededHero = null;
+                        try {
+                            const existingHero = heroBlockConfig?.value || null;
+                            if (!existingHero || !existingHero.mediaUrl) {
+                                const tryUrls = [
+                                    './uploaded_media/boloc2/boloc2.mp4',
+                                    './uploaded_media/boloc3/boloc3.mp4',
+                                    './uploaded_media/boloc-2.mp4',
+                                    './uploaded_media/boloc-3.mp4',
+                                    './uploaded_media/bloc2.mp4',
+                                    './uploaded_media/bloc3.mp4'
+                                ];
+                                let found = null;
+                                for (const u of tryUrls) {
+                                    try {
+                                        const res = await fetch(u, { method: 'HEAD' });
+                                        if (res && res.ok) { found = u; break; }
+                                    } catch (e) {
+                                        // ignore network errors for probing
+                                    }
+                                }
+                                if (found) {
+                                    // Preserve any existing heading/body when seeding the mediaUrl
+                                    const existing = existingHero || {};
+                                    seededHero = Object.assign({}, existing, { mediaType: 'video', mediaUrl: found });
+                                    try { await dbPut(STORES.CONFIG, { key: 'hero_media_block', value: seededHero }); } catch (e) { console.warn('Failed to write seeded hero_media_block', e); }
+                                }
+                            }
+                        } catch (e) {
+                            console.warn('Hero seed probe failed', e);
+                        }
+                        setHeroMediaBlock(heroBlockConfig?.value || seededHero || null);
+                        // If hero and welcome videos are swapped in the DB, fix them:
+                        try {
+                            const heroUrl = (heroBlockConfig?.value && heroBlockConfig.value.mediaUrl) || (seededHero && seededHero.mediaUrl) || null;
+                            const welcomeUrl = videoConfig?.value || null;
+                            const isHeroPointingTo3 = heroUrl && /bloc3\.mp4$|boloc-3\.mp4$/i.test(heroUrl);
+                            const isWelcomePointingTo2 = welcomeUrl && /bloc2\.mp4$|boloc-2\.mp4$/i.test(welcomeUrl);
+                            if (isHeroPointingTo3 && isWelcomePointingTo2) {
+                                // Preserve existing hero heading/body when fixing swap
+                                const existing = heroBlockConfig?.value || {};
+                                const newHero = Object.assign({}, existing, { mediaType: 'video', mediaUrl: './uploaded_media/bloc2.mp4' });
+                                const newWelcome = './uploaded_media/bloc3.mp4';
+                                try { await dbPut(STORES.CONFIG, { key: 'hero_media_block', value: newHero }); } catch (e) { console.warn('Failed writing fixed hero_media_block', e); }
+                                try { await dbPut(STORES.CONFIG, { key: 'welcome_video', value: newWelcome }); } catch (e) { console.warn('Failed writing fixed welcome_video', e); }
+                                setHeroMediaBlock(newHero);
+                                setWelcomeVideo(newWelcome);
+                                console.log('Auto-fixed swapped media: hero->bloc2, welcome->bloc3');
+                            }
+                        } catch (e) {
+                            console.warn('Auto-fix swap check failed', e);
+                        }
+
+                        // If hero text (heading/body) is missing, try to restore it from a local backup JSON in the repo.
+                        try {
+                            const currentHero = (heroBlockConfig && heroBlockConfig.value) || seededHero || null;
+                            const needsHeading = !currentHero || !currentHero.heading;
+                            const needsBody = !currentHero || !currentHero.body;
+                            if ((needsHeading || needsBody)) {
+                                const backupCandidates = ['./data.json'];
+                                let backup = null;
+                                for (const b of backupCandidates) {
+                                    try {
+                                        const r = await fetch(b);
+                                        if (r && r.ok) { backup = await r.json(); break; }
+                                    } catch (e) { /* ignore */ }
+                                }
+                                if (backup && backup.hero_media_block) {
+                                    const from = backup.hero_media_block;
+                                    const merged = Object.assign({}, currentHero || {}, {
+                                        heading: currentHero?.heading || from.heading || null,
+                                        body: currentHero?.body || from.body || null
+                                    });
+                                    try { await dbPut(STORES.CONFIG, { key: 'hero_media_block', value: merged }); } catch (e) { console.warn('Failed writing restored hero text', e); }
+                                    setHeroMediaBlock(merged);
+                                    console.log('Restored hero heading/body from local backup');
+                                }
+                            }
+                        } catch (e) {
+                            console.warn('Hero restore from backup failed', e);
+                        }
 
                         await refreshView({ type: 'brands' });
 
@@ -5072,44 +6218,6 @@ python -m http.server 8080
                 useEffect(() => {
                     initializeApp();
                 }, [initializeApp]);
-
-                // If preload contains footer_info, ensure it's synced into STORES.CONFIG
-                useEffect(() => {
-                    try {
-                        const fi = window.PRELOADED_DATA && window.PRELOADED_DATA.config && window.PRELOADED_DATA.config.footer_info;
-                        if (fi) {
-                            dbPut(STORES.CONFIG, { key: 'footer_info', value: fi }).then(() => {
-                                setFooterSettings(fi);
-                            }).catch(err => console.error('Failed to sync footer_info from preload:', err));
-                        }
-                    } catch (e) {
-                        // ignore
-                    }
-                }, []);
-
-                // Also sync welcome screen settings from preload so hero/wallpaper appears without clearing storage
-                useEffect(() => {
-                    try {
-                        const cfg = window.PRELOADED_DATA && window.PRELOADED_DATA.config;
-                        if (!cfg) return;
-                        const tasks = [];
-                        if (cfg.welcome_images) {
-                            tasks.push(dbPut(STORES.CONFIG, { key: 'welcome_images', value: cfg.welcome_images }).then(() => setWelcomeImages(cfg.welcome_images)));
-                        }
-                        if (cfg.welcome_background_type) {
-                            tasks.push(dbPut(STORES.CONFIG, { key: 'welcome_background_type', value: cfg.welcome_background_type }).then(() => setWelcomeBackgroundType(cfg.welcome_background_type)));
-                        }
-                        if (cfg.welcome_background_video) {
-                            tasks.push(dbPut(STORES.CONFIG, { key: 'welcome_background_video', value: cfg.welcome_background_video }).then(() => setWelcomeBackgroundVideo(cfg.welcome_background_video)));
-                        }
-                        if (cfg.hero_media_block) {
-                            tasks.push(dbPut(STORES.CONFIG, { key: 'hero_media_block', value: cfg.hero_media_block }).then(() => setHeroMediaBlock(cfg.hero_media_block)));
-                        }
-                        if (tasks.length) Promise.all(tasks).catch(err => console.error('Failed to sync welcome settings from preload:', err));
-                    } catch (e) {
-                        // ignore
-                    }
-                }, []);
 
                 useEffect(() => {
                     const savedKey = localStorage.getItem('gemini_api_key');
@@ -5192,47 +6300,6 @@ python -m http.server 8080
                         addToast('Could not save footer settings.', 'error');
                     }
                 };
-
-                // Reload remote backup JSON and re-import into IndexedDB (force overwrite)
-                const reloadRemoteBackup = useCallback(async () => {
-                    setIsLoading(true);
-                    try {
-                        const resp = await fetch('deploy/catalog_backup_lazy_2026-01-01T12-59-15-517Z.json', { cache: 'no-store' });
-                        if (!resp.ok) throw new Error('Failed to fetch remote backup');
-                        const j = await resp.json();
-                        const { data, config } = j;
-                        if (!data || !config) throw new Error('Invalid backup format');
-                        await Promise.all(Object.values(STORES).map(dbClear));
-                        await Promise.all([
-                            ...data.brands.map(item => dbPut(STORES.BRANDS, item)),
-                            ...data.categories.map(item => dbPut(STORES.CATEGORIES, item)),
-                            ...data.products.map(item => dbPut(STORES.PRODUCTS, item)),
-                        ]);
-                        // write common config keys
-                        await Promise.all([
-                            dbPut(STORES.CONFIG, { key: 'app_title', value: config.app_title }),
-                            dbPut(STORES.CONFIG, { key: 'welcome_images', value: config.welcome_images }),
-                            dbPut(STORES.CONFIG, { key: 'welcome_video', value: config.welcome_video }),
-                            dbPut(STORES.CONFIG, { key: 'welcome_background_type', value: config.welcome_background_type }),
-                            dbPut(STORES.CONFIG, { key: 'welcome_background_video', value: config.welcome_background_video }),
-                            dbPut(STORES.CONFIG, { key: 'footer_info', value: config.footer_info }),
-                            dbPut(STORES.CONFIG, { key: 'hero_media_block', value: config.hero_media_block }),
-                        ]);
-                        setFooterSettings(config.footer_info || null);
-                        setWelcomeImages(config.welcome_images || []);
-                        setWelcomeVideo(config.welcome_video || null);
-                        setWelcomeBackgroundType(config.welcome_background_type || 'photos');
-                        setWelcomeBackgroundVideo(config.welcome_background_video || null);
-                        setHeroMediaBlock(config.hero_media_block || null);
-                        localStorage.setItem('catalog_preloaded_v1', 'true');
-                        try { if (j && j.catalog_version) localStorage.setItem('catalog_backup_version', j.catalog_version); } catch(e){}
-                        // silent success: remote backup reloaded
-                    } catch (err) {
-                        console.error('Reload remote backup failed', err);
-                    } finally {
-                        setIsLoading(false);
-                    }
-                }, [addToast]);
 
                 const handleWipeAllData = useCallback(async () => {
                     try {
@@ -5534,13 +6601,37 @@ python -m http.server 8080
                                         ...data.categories.map(item => dbPut(STORES.CATEGORIES, item)),
                                         ...data.products.map(item => dbPut(STORES.PRODUCTS, item)),
                                         dbPut(STORES.CONFIG, { key: 'app_title', value: sanitizeValue(config.app_title) }),
-                                        dbPut(STORES.CONFIG, { key: 'welcome_images', value: sanitizeValue(config.welcome_images) }),
-                                        dbPut(STORES.CONFIG, { key: 'welcome_video', value: sanitizeValue(config.welcome_video) }),
-                                        dbPut(STORES.CONFIG, { key: 'welcome_background_type', value: sanitizeValue(config.welcome_background_type) }),
-                                        dbPut(STORES.CONFIG, { key: 'welcome_background_video', value: sanitizeValue(config.welcome_background_video) }),
-                                        dbPut(STORES.CONFIG, { key: 'hero_media_block', value: sanitizeValue(config.hero_media_block) || null }),
-                                        dbPut(STORES.CONFIG, { key: 'footer_info', value: sanitizeValue(config.footer_info) || null }),
+                                            dbPut(STORES.CONFIG, { key: 'welcome_images', value: sanitizeValue(config.welcome_images) }),
+                                            dbPut(STORES.CONFIG, { key: 'welcome_video', value: sanitizeValue(config.welcome_video) }),
+                                            dbPut(STORES.CONFIG, { key: 'welcome_background_type', value: sanitizeValue(config.welcome_background_type) }),
+                                            dbPut(STORES.CONFIG, { key: 'welcome_background_video', value: sanitizeValue(config.welcome_background_video) }),
+                                            dbPut(STORES.CONFIG, { key: 'hero_media_block', value: sanitizeValue(config.hero_media_block) || null }),
+                                            dbPut(STORES.CONFIG, { key: 'footer_info', value: sanitizeValue(config.footer_info) || null }),
                                     ]);
+
+                                    // If the imported file contains embedded media, restore them into IndexedDB
+                                    try {
+                                        const embedded = config._embedded_media || null;
+                                        if (embedded) {
+                                                    if (embedded.welcome_video && embedded.welcome_video.dataUrl) {
+                                                        await dbPut(STORES.CONFIG, { key: 'welcome_video', value: embedded.welcome_video.dataUrl });
+                                                    }
+                                                    if (embedded.welcome_background_video && embedded.welcome_background_video.dataUrl) {
+                                                        await dbPut(STORES.CONFIG, { key: 'welcome_background_video', value: embedded.welcome_background_video.dataUrl });
+                                                    }
+                                                    if (embedded.hero_video && embedded.hero_video.dataUrl) {
+                                                        // merge mediaUrl into hero_media_block if present
+                                                        const existingHero = await dbGet(STORES.CONFIG, 'hero_media_block');
+                                                        const heroVal = (existingHero && existingHero.value) ? existingHero.value : {};
+                                                        heroVal.mediaUrl = embedded.hero_video.dataUrl;
+                                                        // Ensure mediaType is set to 'video' so the UI renders a <video> tag
+                                                        if (!heroVal.mediaType) heroVal.mediaType = 'video';
+                                                        await dbPut(STORES.CONFIG, { key: 'hero_media_block', value: heroVal });
+                                                    }
+                                        }
+                                    } catch (e) {
+                                        console.warn('Failed restoring embedded media during import', e);
+                                    }
 
                                     addToast(TRANSLATIONS.importSuccess, 'success');
                                     window.location.reload();
@@ -5623,6 +6714,7 @@ python -m http.server 8080
 
                         const productsForExport = await compressProductsImages(products || []);
 
+                        // Include mediaUrl in export so external embed scripts can locate the hero video
                         // Include mediaUrl so external scripts can embed hero video into backups
                         const heroExport = heroBlockConf?.value ? {
                             heading: (heroBlockConf.value.heading || '').toString(),
@@ -5630,18 +6722,24 @@ python -m http.server 8080
                             mediaUrl: heroBlockConf.value.mediaUrl || null
                         } : null;
 
-                        // Attempt to embed welcome/hero video files into the backup when available.
+                        // Attempt to embed welcome/hero video files into the backup when available (<= 12MB per file).
                         const embeddedMedia = {};
+                        // declare export candidate vars in outer scope so they're available after this try/catch
+                        let welcomeVideoForExport = null;
+                        let welcomeBackgroundVideoForExport = null;
+                        let heroVideoForExport = null;
                         try {
+                            const MAX_EMBED_BYTES = 12 * 1024 * 1024; // 12MB
                             const maybeFetchAsDataUrl = async (url) => {
                                 if (!url) return null;
-                                // Only embed local uploaded media or deploy assets paths
-                                if (!/^\/.+|^\.\//.test(url) && !url.includes('uploaded_media') && !url.includes('assets')) return null;
-                                try {
-                                    const resp = await fetch(url, { cache: 'no-store' });
-                                    if (!resp.ok) return null;
-                                    const buf = await resp.arrayBuffer();
-                                    // convert to base64
+                                const allow = (typeof url === 'string') && (
+                                    url.startsWith('data:') || url.startsWith('blob:') || url.startsWith('/') || url.startsWith('./') || url.includes('uploaded_media') || url.includes('assets')
+                                );
+                                if (!allow) return null;
+
+                                const readBufferToDataUrl = (buf, srcUrl) => {
+                                    if (!buf) return null;
+                                    if (buf.byteLength > MAX_EMBED_BYTES) return null;
                                     let binary = '';
                                     const bytes = new Uint8Array(buf);
                                     const chunkSize = 0x8000;
@@ -5649,21 +6747,181 @@ python -m http.server 8080
                                         binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
                                     }
                                     const b64 = btoa(binary);
-                                    // guess mime from extension
-                                    const ext = (url.split('.').pop() || '').toLowerCase();
+                                    const ext = (srcUrl.split('.').pop() || '').toLowerCase();
                                     const mime = ext === 'mp4' ? 'video/mp4' : ext === 'webm' ? 'video/webm' : 'application/octet-stream';
                                     return `data:${mime};base64,${b64}`;
-                                } catch (e) {
-                                    console.warn('Failed to fetch/embed media', url, e);
-                                    return null;
+                                };
+
+                                const tryFetch = async (fetchUrl, options = {}) => {
+                                    try {
+                                        const resp = await fetch(fetchUrl, options);
+                                        if (!resp || !resp.ok) return null;
+                                        const buf = await resp.arrayBuffer();
+                                        return readBufferToDataUrl(buf, fetchUrl);
+                                    } catch (e) {
+                                        return null;
+                                    }
+                                };
+
+                                // If already a data: URI, return it (if within size cap)
+                                if (typeof url === 'string' && url.startsWith('data:')) {
+                                    return url.length <= MAX_EMBED_BYTES ? url : null;
                                 }
+
+                                // Build a list of candidate URLs to try (original, absolute, resolved)
+                                const candidates = [url];
+                                try {
+                                    if (url.startsWith('/') && (/^\/(uploaded_media|deploy|assets)\//.test(url))) {
+                                        candidates.push('./' + url.replace(/^\/+/, ''));
+                                    } else if (url.startsWith('/')) {
+                                        candidates.push(window.location.origin + url);
+                                    }
+                                    // Try resolving relative URLs against current location
+                                    try {
+                                        const resolved = new URL(url, window.location.href).href;
+                                        if (!candidates.includes(resolved)) candidates.push(resolved);
+                                    } catch (e) { /* ignore invalid URL */ }
+                                    if (url.includes('uploaded_media') && !url.startsWith('/')) {
+                                        const withOrigin = new URL(url, window.location.href).href;
+                                        if (!candidates.includes(withOrigin)) candidates.push(withOrigin);
+                                    }
+                                } catch (e) {
+                                    // ignore
+                                }
+
+                                // Try each candidate: direct fetch (no-store), cache, busted, plain
+                                for (const c of candidates) {
+                                    let result = await tryFetch(c, { cache: 'no-store' });
+                                    if (result) return result;
+
+                                    // cache storage
+                                    try {
+                                        if (window.caches && caches.match) {
+                                            const cachedResp = await caches.match(c);
+                                            if (cachedResp && cachedResp.ok) {
+                                                try {
+                                                    const buf = await cachedResp.arrayBuffer();
+                                                    const dataUrl = readBufferToDataUrl(buf, c);
+                                                    if (dataUrl) return dataUrl;
+                                                } catch (e) { /* ignore */ }
+                                            }
+                                        }
+                                    } catch (e) { /* ignore cache errors */ }
+
+                                    // cache-busted
+                                    try {
+                                        const sep = c.includes('?') ? '&' : '?';
+                                        const busted = c + sep + '_cb=' + Date.now();
+                                        result = await tryFetch(busted, { cache: 'reload' });
+                                        if (result) return result;
+                                    } catch (e) { /* ignore */ }
+
+                                    // last attempt plain fetch
+                                    result = await tryFetch(c);
+                                    if (result) return result;
+                                }
+
+                                return null;
                             };
 
                             const welcomeVideoUrl = videoConf?.value || null;
-                            const heroUrl = heroBlockConf?.value && heroBlockConf.value.mediaUrl ? heroBlockConf.value.mediaUrl : null;
-                            const wData = await maybeFetchAsDataUrl(welcomeVideoUrl);
-                            const hData = await maybeFetchAsDataUrl(heroUrl);
+                            const welcomeBackgroundVideoUrl = bgVidConf?.value || null;
+                            let heroUrl = heroBlockConf?.value && heroBlockConf.value.mediaUrl ? heroBlockConf.value.mediaUrl : null;
+
+                            // If heroUrl is not set, try common uploaded_media filenames so export can reference local video
+                            if (!heroUrl) {
+                                const candidates = [
+                                    './uploaded_media/boloc2/boloc2.mp4',
+                                    './uploaded_media/boloc3/boloc3.mp4',
+                                    './uploaded_media/boloc-2.mp4',
+                                    './uploaded_media/boloc-3.mp4',
+                                    './uploaded_media/bloc2.mp4',
+                                    './uploaded_media/bloc3.mp4'
+                                ];
+                                const tryHead = async (u) => {
+                                    try {
+                                        const full = u.startsWith('http') ? u : new URL(u, window.location.href).href;
+                                        const resp = await fetch(full, { method: 'HEAD', cache: 'no-store' });
+                                        return resp && resp.ok;
+                                    } catch (e) { return false; }
+                                };
+                                for (const c of candidates) {
+                                    // eslint-disable-next-line no-await-in-loop
+                                    const ok = await tryHead(c);
+                                    if (ok) { heroUrl = c; break; }
+                                }
+                            }
+
+                            // ensure heroExport.mediaUrl reflects resolved heroUrl (so export contains it)
+                            try {
+                                if (heroExport) heroExport.mediaUrl = heroUrl || null;
+                            } catch (e) { /* ignore */ }
+
+                            // If the stored value is already a data: URI for a video, treat it as embedded media
+                            welcomeVideoForExport = (typeof welcomeVideoUrl !== 'undefined') ? welcomeVideoUrl : null;
+                            welcomeBackgroundVideoForExport = (typeof welcomeBackgroundVideoUrl !== 'undefined') ? welcomeBackgroundVideoUrl : null;
+                            heroVideoForExport = (typeof heroUrl !== 'undefined') ? heroUrl : null;
+                            if (typeof welcomeVideoUrl === 'string' && welcomeVideoUrl.startsWith('data:')) {
+                                // small safety cap: only embed if <= MAX_EMBED_BYTES
+                                if (welcomeVideoUrl.length <= (12 * 1024 * 1024)) {
+                                    embeddedMedia.welcome_video = { src: null, dataUrl: welcomeVideoUrl };
+                                    welcomeVideoForExport = null;
+                                } else {
+                                    welcomeVideoForExport = null;
+                                }
+                            }
+                            if (typeof heroUrl === 'string' && heroUrl.startsWith('data:')) {
+                                if (heroUrl.length <= (12 * 1024 * 1024)) {
+                                    embeddedMedia.hero_video = { src: null, dataUrl: heroUrl };
+                                    heroVideoForExport = null;
+                                } else {
+                                    heroVideoForExport = null;
+                                }
+                            }
+
+                            // If background video is a data: URI, treat similarly for embedding
+                            if (typeof welcomeBackgroundVideoUrl === 'string' && welcomeBackgroundVideoUrl.startsWith('data:')) {
+                                if (welcomeBackgroundVideoUrl.length <= (12 * 1024 * 1024)) {
+                                    embeddedMedia.welcome_background_video = { src: null, dataUrl: welcomeBackgroundVideoUrl };
+                                    welcomeBackgroundVideoForExport = null;
+                                } else {
+                                    welcomeBackgroundVideoForExport = null;
+                                }
+                            }
+
+                            // If hero video URL missing, try common uploaded_media filenames and embed the first reachable one
+                            if (!heroVideoForExport) {
+                                const commonCandidates = [
+                                    'uploaded_media/bloc2.mp4', 'uploaded_media/bloc2',
+                                    'uploaded_media/bloc3.mp4', 'uploaded_media/bloc3',
+                                    'uploaded_media/boloc-2.mp4', 'uploaded_media/boloc-2',
+                                    'uploaded_media/boloc-3.mp4', 'uploaded_media/boloc-3',
+                                    'uploaded_media/بلوک ۲/bloc2.mp4', 'uploaded_media/بلوک ۲/bloc2',
+                                    'uploaded_media/بلوک ۳/bloc3.mp4', 'uploaded_media/بلوک ۳/bloc3',
+                                    'uploaded_media/بلوک ۲/boloc-2.mp4', 'uploaded_media/بلوک ۲/boloc-2',
+                                    'uploaded_media/بلوک ۳/boloc-3.mp4', 'uploaded_media/بلوک ۳/boloc-3'
+                                ];
+                                for (const c of commonCandidates) {
+                                    try {
+                                        const resolved = c.startsWith('/') ? new URL('./' + c.replace(/^\/+/, ''), window.location.href).href : new URL(c, window.location.href).href;
+                                        const maybe = await maybeFetchAsDataUrl(resolved);
+                                        if (maybe) {
+                                            embeddedMedia.hero_video = { src: resolved, dataUrl: maybe };
+                                            heroVideoForExport = null;
+                                            // ensure export records mediaUrl as null since it's embedded
+                                            if (heroExport) heroExport.mediaUrl = null;
+                                            addToast('Included hero video in backup via automatic candidate match.', 'info');
+                                            break;
+                                        }
+                                    } catch (e) { /* ignore and continue */ }
+                                }
+                            }
+
+                            const wData = welcomeVideoForExport ? await maybeFetchAsDataUrl(welcomeVideoForExport) : null;
+                            const bData = welcomeBackgroundVideoForExport ? await maybeFetchAsDataUrl(welcomeBackgroundVideoForExport) : null;
+                            const hData = heroVideoForExport ? await maybeFetchAsDataUrl(heroVideoForExport) : null;
                             if (wData) embeddedMedia.welcome_video = { src: welcomeVideoUrl, dataUrl: wData };
+                            if (bData) embeddedMedia.welcome_background_video = { src: welcomeBackgroundVideoUrl, dataUrl: bData };
                             if (hData) embeddedMedia.hero_video = { src: heroUrl, dataUrl: hData };
                             if (Object.keys(embeddedMedia).length) {
                                 addToast('Including uploaded videos in backup (this may increase file size).', 'info');
@@ -5679,7 +6937,7 @@ python -m http.server 8080
                                 welcome_images: imagesConf?.value || [],
                                 welcome_video: videoConf?.value || null,
                                 welcome_background_type: bgTypeConf?.value || 'photos',
-                                welcome_background_video: bgVidConf?.value || null,
+                                welcome_background_video: welcomeBackgroundVideoForExport || null,
                                 // Only keep hero text (heading/body) in export — include mediaUrl and optionally embed media
                                 hero_media_block: heroExport,
                                 // Embedded media (base64) - optional and may drastically grow backup size
@@ -5709,8 +6967,8 @@ python -m http.server 8080
                                 // Never prune embedded media base64 blobs (we want to keep videos if present)
                                 if (path && path.indexOf('root.config._embedded_media') === 0) return value;
                                 if (typeof value === 'string' && value.length > maxLen) {
-                                        omitted.push({ path, length: value.length });
-                                        return null;
+                                    omitted.push({ path, length: value.length });
+                                    return null;
                                 }
                                 return value;
                             };
@@ -5725,7 +6983,38 @@ python -m http.server 8080
                             addToast(`Export: omitted ${omitted.length} large media items to avoid oversized backup.`, 'warning');
                         }
 
-                        const jsonString = JSON.stringify(prunedData, null, 2);
+                        // Sanitize potential secrets before exporting.
+                        const SENSITIVE_KEY_RE = /api[_-]?key|token|secret|password|gemini|openai|authorization/i;
+                        const GOOGLE_API_KEY_RE = /AIza[0-9A-Za-z\-_]{20,}/g;
+                        const OPENAI_KEY_RE = /sk-[0-9a-zA-Z\-_]{16,}/g;
+
+                        const scrubValue = (val, keyName) => {
+                            if (typeof val === 'string') {
+                                if (GOOGLE_API_KEY_RE.test(val) || OPENAI_KEY_RE.test(val) || /ya29\./.test(val)) return '<<REDACTED_SECRET>>';
+                                return val;
+                            }
+                            if (Array.isArray(val)) return val.map(v => scrubValue(v));
+                            if (val && typeof val === 'object') {
+                                const out = {};
+                                for (const k of Object.keys(val)) {
+                                    try {
+                                        if (SENSITIVE_KEY_RE.test(k)) {
+                                            out[k] = '<<REDACTED_KEY>>';
+                                        } else {
+                                            out[k] = scrubValue(val[k], k);
+                                        }
+                                    } catch (e) {
+                                        out[k] = null;
+                                    }
+                                }
+                                return out;
+                            }
+                            return val;
+                        };
+
+                        const sanitized = scrubValue(prunedData);
+
+                        const jsonString = JSON.stringify(sanitized, null, 2);
                         const blob = new Blob([jsonString], { type: 'application/json' });
                         const url = URL.createObjectURL(blob);
 
@@ -6337,6 +7626,25 @@ python -m http.server 8080
             // Debug helper removed — no floating debug button in production.
 
             ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+
+            // Auto-run unregister/clear helpers when `?clearSw=1` is present in the URL.
+            try {
+                if (typeof location !== 'undefined' && location.search && location.search.indexOf('clearSw=1') !== -1) {
+                    (async () => {
+                        try {
+                            if (typeof unregisterServiceWorkersAndClearCaches === 'function') {
+                                console.log('clearSw flag detected — unregistering service workers and clearing caches...');
+                                await unregisterServiceWorkersAndClearCaches();
+                                console.log('Service workers and caches cleared (auto).');
+                                // give the user a hint in-page
+                                try { alert('Service workers and caches cleared. Please hard-refresh the page (Ctrl+Shift+R).'); } catch(e){}
+                            } else {
+                                console.warn('unregisterServiceWorkersAndClearCaches helper not available yet.');
+                            }
+                        } catch (e) { console.warn('Auto-clear failed', e); }
+                    })();
+                }
+            } catch (e) {}
         };
     </script>
     <script>

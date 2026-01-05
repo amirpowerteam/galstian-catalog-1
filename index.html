@@ -1070,10 +1070,30 @@ python -m http.server 8080
             if (window.PRELOADED_DATA) return;
             try {
                 var xhr = new XMLHttpRequest();
-                xhr.open('GET', 'preloaded_backup_min.json', false); // synchronous local load
+                xhr.open('GET', './deploy/catalog_backup_lazy_2026-01-01T12-59-15-517Z.json', false); // synchronous local load (use approved deploy backup)
                 xhr.send(null);
                 if (xhr.status === 200) {
-                    window.PRELOADED_DATA = JSON.parse(xhr.responseText);
+                    try {
+                        var parsed = JSON.parse(xhr.responseText);
+                    } catch (pe) { parsed = null; }
+                    // If the preloaded file is a pointer to the true backup, load it synchronously
+                    if (parsed && parsed.source && typeof parsed.source === 'string') {
+                        try {
+                            var xhr2 = new XMLHttpRequest();
+                            xhr2.open('GET', parsed.source, false);
+                            xhr2.send(null);
+                            if (xhr2.status === 200) {
+                                window.PRELOADED_DATA = JSON.parse(xhr2.responseText);
+                            } else {
+                                // fallback to the pointer content if direct load fails
+                                window.PRELOADED_DATA = parsed.content || parsed;
+                            }
+                        } catch (e2) {
+                            window.PRELOADED_DATA = parsed.content || parsed;
+                        }
+                    } else if (parsed) {
+                        window.PRELOADED_DATA = parsed;
+                    }
                     // ensure promise-based code can still await preloaded data
                     window.PRELOADED_DATA_PROMISE = Promise.resolve(window.PRELOADED_DATA);
                     try { console.info('PRELOADED_DATA loaded from preloaded_backup_min.json (local fallback)'); } catch(e){}
@@ -1159,17 +1179,9 @@ python -m http.server 8080
                 let dataObj = null;
                 // Primary specific backup filename to prioritize
                 const PRIMARY_BACKUP_NAME = 'catalog_backup_lazy_2026-01-01T12-59-15-517Z.json';
-                // Look for several common backup filenames placed at repo root
-                // to increase chance of finding a usable local backup on GitHub Pages.
+                // Use only the approved backup file as the candidate (strict behavior)
                 const backupCandidates = [
-                    './data.json',
-                    './catalog_backup.json',
-                    './catalog_backup_lazy_2026-01-01T12-59-15-517Z.json',
-                    './deploy/catalog_backup_lazy_2026-01-01T12-59-15-517Z.json',
-                    './catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
-                    './deploy/catalog_backup_lazy_2026-01-01T18-42-54-296Z.json',
-                    './deploy/data.json',
-                    './data/catalog_backup.json'
+                    './catalog_backup_lazy_2026-01-01T12-59-15-517Z.json'
                 ];
                 for (const b of backupCandidates) {
                     try {
