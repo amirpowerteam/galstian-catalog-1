@@ -53,6 +53,7 @@
                 const report = { env: {}, time: new Date().toISOString(), files: {}, serviceWorkers: [], caches: {}, indexedDB: {}, storage: {}, console: {}, notes: [] };
                 try {
                     report.env.url = location.href;
+                    try { report.env.origin = location.origin; } catch(e){}
                     report.env.userAgent = navigator.userAgent;
                     report.env.platform = navigator.platform;
                     report.env.cookieEnabled = navigator.cookieEnabled;
@@ -129,7 +130,7 @@
                                                         const tx = storeDB.transaction('bodies', 'readwrite');
                                                         const store = tx.objectStore('bodies');
                                                         await new Promise((res, rej) => {
-                                                            const putReq = store.put({ key, blob });
+                                                            const putReq = store.put({ key, blob, origin: (location && location.origin) ? location.origin : null, storedAt: Date.now() });
                                                             putReq.onsuccess = () => res(true);
                                                             putReq.onerror = () => rej(putReq.error);
                                                         });
