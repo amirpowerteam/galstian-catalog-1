@@ -468,6 +468,15 @@ python -m http.server 8080
                 for (const s of candidates) {
                     try {
                         const src = s.innerHTML;
+                        // If the script contains a `try` block but no nearby `catch` or `finally`,
+                        // it's a real syntax error we can't safely transpile. Skip these.
+                        const hasTry = /\\btry\\s*\\{/.test(src);
+                        const hasCatch = /\\bcatch\\s*\\(/.test(src);
+                        const hasFinally = /\\bfinally\\s*\\{/.test(src);
+                        if (hasTry && !hasCatch && !hasFinally) {
+                            console.warn('Skipping inline script with unsupported try-without-catch/finally (will not transpile).');
+                            continue;
+                        }
                         // transform with react preset; keep es2015 transforms via env
                         const out = Babel.transform(src, { presets: ['react', 'env'], sourceMaps: 'inline' }).code;
                         const ns = document.createElement('script');
