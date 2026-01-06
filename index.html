@@ -369,6 +369,7 @@
         // prefer the first available uploaded video so the welcome screen shows video.
         (function attachUploadedMediaFallback(){
             try {
+                // If PRELOADED_DATA missing or has no config, nothing to do
                 if (!window.PRELOADED_DATA) return;
                 // fetch manifest (small JSON listing uploaded media paths)
                 fetch('./uploaded_media/manifest.json', { cache: 'no-store' }).then(async (r) => {
@@ -389,6 +390,23 @@
                 }).catch(()=>{});
             } catch(e) {}
         })();
+
+        // Synchronous immediate fallback: if PRELOADED_DATA exists but no welcome_video,
+        // set a sensible default to a known uploaded file so the welcome screen can show video
+        try {
+            if (window.PRELOADED_DATA && window.PRELOADED_DATA.config) {
+                const cfg = window.PRELOADED_DATA.config;
+                if (!cfg.welcome_video) {
+                    const defaultCandidate = './uploaded_media/boloc2/boloc2.mp4';
+                    cfg.welcome_video = defaultCandidate;
+                    // ensure background type is video so UI chooses the video display
+                    cfg.welcome_background_type = cfg.welcome_background_type || 'video';
+                    cfg.welcome_background_video = cfg.welcome_background_video || defaultCandidate;
+                    try { window.PRELOADED_DATA_PROMISE = Promise.resolve(window.PRELOADED_DATA); } catch(e){}
+                    try { console.info('PRELOADED_DATA: applied immediate uploaded_media fallback for welcome_video', defaultCandidate); } catch(e){}
+                }
+            }
+        } catch(e) {}
     </script>
     <script>
         // If the page is opened via file://, show a clear banner with instructions
