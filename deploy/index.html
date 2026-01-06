@@ -405,6 +405,10 @@ python -m http.server 8080
         // Service Worker registration (skip on file://)
         (function registerSW() {
             try {
+                // Admin override: disable registering new service workers from pages
+                // This prevents re-installing the SW while we are performing cleanup.
+                console.info('Service Worker registration disabled by admin');
+                return;
                 if (window.IS_FILE_PROTOCOL) {
                     console.log('Skipping Service Worker registration under file:// protocol');
                     return;
