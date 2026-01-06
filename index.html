@@ -379,11 +379,19 @@
                         const vids = Array.isArray(j && j.videos) ? j.videos : [];
                         if (vids.length && window.PRELOADED_DATA && window.PRELOADED_DATA.config) {
                             if (!window.PRELOADED_DATA.config.welcome_video) {
-                                // normalize to relative path under site
+                                // normalize to use GitHub Pages absolute path so runtime always fetches
                                 const candidate = vids[0];
-                                window.PRELOADED_DATA.config.welcome_video = candidate.startsWith('./') ? candidate : ('./' + candidate.replace(/^\/+/, ''));
+                                let candidateUrl = candidate.startsWith('./') ? candidate : ('./' + candidate.replace(/^\/+/, ''));
+                                try {
+                                    if (candidateUrl.includes('uploaded_media')) {
+                                        const GH_PAGES_BASE = 'https://amirpowerteam.github.io/galstian-catalog-1/';
+                                        candidateUrl = candidateUrl.replace(/^\.\/?+/, '').replace(/^\/+/, '');
+                                        candidateUrl = GH_PAGES_BASE + candidateUrl;
+                                    }
+                                } catch (e) {}
+                                window.PRELOADED_DATA.config.welcome_video = candidateUrl;
                                 try { window.PRELOADED_DATA_PROMISE = Promise.resolve(window.PRELOADED_DATA); } catch(e){}
-                                try { console.info('PRELOADED_DATA: applied uploaded_media manifest fallback for welcome_video', candidate); } catch(e){}
+                                try { console.info('PRELOADED_DATA: applied uploaded_media manifest fallback for welcome_video', candidateUrl); } catch(e){}
                             }
                         }
                     } catch(e) { /* ignore manifest parse errors */ }
@@ -398,10 +406,13 @@
                 const cfg = window.PRELOADED_DATA.config;
                 if (!cfg.welcome_video) {
                     const defaultCandidate = './uploaded_media/boloc2/boloc2.mp4';
-                    cfg.welcome_video = defaultCandidate;
+                    // Prefer absolute GitHub Pages URL to avoid path resolution issues
+                    const GH_PAGES_BASE = 'https://amirpowerteam.github.io/galstian-catalog-1/';
+                    const absDefault = GH_PAGES_BASE + defaultCandidate.replace(/^\.\/|^\/+/, '');
+                    cfg.welcome_video = absDefault;
                     // ensure background type is video so UI chooses the video display
                     cfg.welcome_background_type = cfg.welcome_background_type || 'video';
-                    cfg.welcome_background_video = cfg.welcome_background_video || defaultCandidate;
+                    cfg.welcome_background_video = cfg.welcome_background_video || absDefault;
                     try { window.PRELOADED_DATA_PROMISE = Promise.resolve(window.PRELOADED_DATA); } catch(e){}
                     try { console.info('PRELOADED_DATA: applied immediate uploaded_media fallback for welcome_video', defaultCandidate); } catch(e){}
                 }
