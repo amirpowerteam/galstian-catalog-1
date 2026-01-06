@@ -1,0 +1,32 @@
+گزارش موارد "price: 0"
+تاریخ: 2026-01-04
+
+تذکر: برخی فایل‌ها بزرگ‌تر از حد خواندن مستقیم با ابزار داخلی هستند؛ در این گزارش مسیر فایل‌ها و شمارهٔ خطوطی که مقدار "price": 0 در آن‌ها یافت شده ذکر شده است. برای مشاهدهٔ متنِ اطراف هر رخداد، دستورهای PowerShell پیشنهادی در انتها آمده‌اند.
+
+موارد یافت‌شده (فایل — شمارهٔ خط):
+- detailed_bug_report_2026-01-04T14-59-39-254Z.json — lines: 284, 300, 316
+- deploy\catalog_backup_lazy_2026-01-01T18-42-54-296Z.json — lines: 252, 268, 284
+- catalog_backup_lazy_2026-01-01T18-42-54-296Z.json — lines: 252, 268, 284
+- catalog_backup.json — lines: 252, 268, 284
+- data.json — lines: 252, 268, 284
+
+نمونهٔ نمونه‌هایی که قبلاً از `data.json` استخراج شده‌اند (برای نمونهٔ دستی):
+- id-1766828337442-7wo1c6cwh  — name.en: "AMETHYST"  — price: 0  — currency: "€"  — name.fa: ""
+- id-1766829245267-ma99sdqw5  — name.en: "Valencia"  — price: 0  — currency: "€"  — name.fa: ""
+- id-1766835428491-hvy2v4gag  — name.en: "AREN"     — price: 0  — currency: "€"  — name.fa: ""
+
+راهنمای استخراج با PowerShell (در پوشهٔ پروژه اجرا کنید):
+# استخراج خطوط اطراف هر رخداد به فایل متنی (6 خط قبل و بعد)
+Select-String -Path .\*.json -Pattern '"price"\s*:\s*0' -Context 6,6 | Out-File .\price-zero-raw.txt -Encoding utf8
+
+# استخراج فقط خطوط حاوی id و name از خروجیِ بالا
+Select-String -Path .\price-zero-raw.txt -Pattern '"id"\s*:|"name"\s*:' | Out-File .\price-zero-ids-names.txt -Encoding utf8
+
+# برای نمایش سریع یک رخداد مشخص (مثال: فایل و شماره خط خروجی)، از Get-Content استفاده کنید (به جای <file> و <line> جایگزین کنید):
+Get-Content .\<file> -TotalCount <line> | Select-Object -Last 12
+
+توضیحِ گام‌های پیشنهادی بعدی:
+1) بازبینی دستی `price-zero-raw.txt` و `price-zero-ids-names.txt` و تصمیم‌گیری دربارهٔ اینکه آیا قیمت‌ها واقعاً باید مقداردهی شوند یا اینکه صفر بودن عمداً است.
+2) در صورت تمایل، می‌توانم برای هر `id` که قیمت در بکاپ‌ها موجود است، مقایسه‌ای با `catalog_backup.json` انجام بدهم و فهرستی از قیمت‌های پیشنهادی تهیه کنم (فقط گزارش؛ هیچ تغییری اعمال نخواهد شد) — اگر موافقید بگویید "مقایسه کن".
+
+پایان گزارش.
