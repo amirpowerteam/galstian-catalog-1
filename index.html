@@ -27,9 +27,21 @@
                 const origFetch = window.fetch;
                 window.fetch = function(input, init){
                     try {
-                        const url = (typeof input === 'string') ? input : (input && input.url) ? input.url : '';
-                        // Allow data: and blob: reads to continue, but skip HTTP(S) and file requests
-                        if (/^data:|^blob:/.test(url)) return origFetch ? origFetch(input, init) : Promise.reject(new Error('no fetch'));
+                        const urlStr = (typeof input === 'string') ? input : (input && input.url) ? input.url : '';
+                        // Allow data: and blob: reads to continue.
+                        if (/^data:|^blob:/.test(urlStr)) return origFetch ? origFetch(input, init) : Promise.reject(new Error('no fetch'));
+                        // Resolve the URL against the page location so relative paths (e.g. "deploy/...")
+                        // and same-origin requests are permitted even under file://. Only suppress
+                        // requests that target external origins which commonly produce noisy errors
+                        // when opened via file://.
+                        try {
+                            const resolved = new URL(urlStr, location.href);
+                            if (resolved && resolved.origin === location.origin) {
+                                return origFetch ? origFetch(input, init) : Promise.reject(new Error('no fetch'));
+                            }
+                        } catch(e) {
+                            // If URL resolution fails, fall through to safe no-op response.
+                        }
                     } catch(e){}
                     return Promise.resolve({ ok: false, status: 0, text: async () => '' });
                 };
