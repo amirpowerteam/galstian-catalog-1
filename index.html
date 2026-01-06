@@ -448,6 +448,43 @@ python -m http.server 8080
     <script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin></script>
     <script src="https://cdn.tailwindcss.com"></script>
 
+    <!-- Runtime: If any later inline scripts contain JSX but aren't marked type="text/babel",
+         transpile them on-the-fly using the already-loaded Babel standalone. This helps avoid
+         "Unexpected token" errors when scripts were inlined without the correct type attribute.
+         NOTE: This is a small, defensive fix for deployments that accidentally omitted
+         type="text/babel". For production builds, precompile instead. -->
+    <script>
+        (function(){
+            try {
+                if (!window.Babel) return;
+                // Find candidate scripts that have no type attribute and contain JSX markers
+                const candidates = Array.from(document.querySelectorAll('script')).filter(s => {
+                    if (s.type) return false; // already typed
+                    if (!s.innerHTML || s.innerHTML.trim().length === 0) return false;
+                    // simple heuristics: presence of ReactDOM.createRoot or JSX tags like <App or <> or <div
+                    return /ReactDOM\.createRoot|<\s*[A-Za-z][A-Za-z0-9_-]*\b|<>/.test(s.innerHTML);
+                });
+
+                for (const s of candidates) {
+                    try {
+                        const src = s.innerHTML;
+                        // transform with react preset; keep es2015 transforms via env
+                        const out = Babel.transform(src, { presets: ['react', 'env'], sourceMaps: 'inline' }).code;
+                        const ns = document.createElement('script');
+                        ns.text = out;
+                        // Preserve script position: replace original with transformed script
+                        s.parentNode.insertBefore(ns, s);
+                        s.parentNode.removeChild(s);
+                    } catch (e) {
+                        console.error('Runtime transpile failed for inline script:', e);
+                    }
+                }
+            } catch (err) {
+                console.warn('Inline runtime transpiler error:', err);
+            }
+        })();
+    </script>
+
     <!-- SheetJS (XLSX) library: try local copy first, then CDN as fallback -->
     <script>
         (function () {
