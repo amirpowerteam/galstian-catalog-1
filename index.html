@@ -20,6 +20,30 @@
         window.IS_FILE_PROTOCOL = (location.protocol === 'file:' || (typeof location.origin === 'string' && location.origin === 'null'));
     </script>
     <script>
+        // Defensive no-op network shims for file:// to reduce noisy console errors
+        (function(){
+            if (!window.IS_FILE_PROTOCOL) return;
+            try {
+                const origFetch = window.fetch;
+                window.fetch = function(input, init){
+                    try {
+                        const url = (typeof input === 'string') ? input : (input && input.url) ? input.url : '';
+                        // Allow data: and blob: reads to continue, but skip HTTP(S) and file requests
+                        if (/^data:|^blob:/.test(url)) return origFetch ? origFetch(input, init) : Promise.reject(new Error('no fetch'));
+                    } catch(e){}
+                    return Promise.resolve({ ok: false, status: 0, text: async () => '' });
+                };
+            } catch(e){}
+            try {
+                const DummyXHR = function(){ this.readyState=0; this.status=0; this.onreadystatechange=null; };
+                DummyXHR.prototype.open = function(){};
+                DummyXHR.prototype.send = function(){ this.readyState=4; this.status=0; if (typeof this.onreadystatechange === 'function') this.onreadystatechange(); };
+                DummyXHR.prototype.setRequestHeader = function(){};
+                window.XMLHttpRequest = DummyXHR;
+            } catch(e){}
+        })();
+    </script>
+    <script>
         // --- Runtime helpers: console capture and detailed report API ---
         (function(){
             if (!window.__capturedConsole) {
@@ -29,8 +53,23 @@
                     const orig = console[name];
                     console[name] = function(...args) {
                         try {
-                            window.__capturedConsole.push({ level: name, time: new Date().toISOString(), args: args.map(a => { try { return typeof a === 'string' ? a : JSON.stringify(a); } catch (e) { return String(a); } }) });
-                            if (window.__capturedConsole.length > maxLogs) window.__capturedConsole.shift();
+                            // When running under file:// many browsers emit noisy, benign
+                            // errors (CORS/file access, failed loads). Avoid capturing
+                            // those in the in-page report to keep local noise out of
+                            // reports that might be copied to GitHub issues.
+                            const isFile = !!window.IS_FILE_PROTOCOL;
+                            const msg = args.map(a => { try { return typeof a === 'string' ? a : JSON.stringify(a); } catch (e) { return String(a); } }).join(' ');
+                            if (isFile) {
+                                const noiseyPatterns = [/Failed to fetch/i, /Failed to load resource/i, /Refused to execute script/i, /SecurityError/i, /Blocked from accessing/i, /Cross origin/i, /Access is denied/i, /Cannot navigate to/i];
+                                const noisy = noiseyPatterns.some(p => p.test(msg));
+                                if (!noisy) {
+                                    window.__capturedConsole.push({ level: name, time: new Date().toISOString(), args: args.map(a => { try { return typeof a === 'string' ? a : JSON.stringify(a); } catch (e) { return String(a); } }) });
+                                    if (window.__capturedConsole.length > maxLogs) window.__capturedConsole.shift();
+                                }
+                            } else {
+                                window.__capturedConsole.push({ level: name, time: new Date().toISOString(), args: args.map(a => { try { return typeof a === 'string' ? a : JSON.stringify(a); } catch (e) { return String(a); } }) });
+                                if (window.__capturedConsole.length > maxLogs) window.__capturedConsole.shift();
+                            }
                         } catch (e) {}
                         try { orig.apply(console, args); } catch (e) {}
                     };
@@ -53,6 +92,7 @@
                 const report = { env: {}, time: new Date().toISOString(), files: {}, serviceWorkers: [], caches: {}, indexedDB: {}, storage: {}, console: {}, notes: [] };
                 try {
                     report.env.url = location.href;
+                    try { report.env.origin = location.origin; } catch(e){}
                     report.env.userAgent = navigator.userAgent;
                     report.env.platform = navigator.platform;
                     report.env.cookieEnabled = navigator.cookieEnabled;
@@ -129,7 +169,7 @@
                                                         const tx = storeDB.transaction('bodies', 'readwrite');
                                                         const store = tx.objectStore('bodies');
                                                         await new Promise((res, rej) => {
-                                                            const putReq = store.put({ key, blob });
+                                                            const putReq = store.put({ key, blob, origin: (location && location.origin) ? location.origin : null, storedAt: Date.now() });
                                                             putReq.onsuccess = () => res(true);
                                                             putReq.onerror = () => rej(putReq.error);
                                                         });
