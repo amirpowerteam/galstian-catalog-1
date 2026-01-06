@@ -14,34 +14,6 @@ const METADB = `${CACHE_PREFIX}-metadb-${CACHE_VERSION}`;
 
 const VERBOSE = true;
 
-// ADMIN-CLEANUP: On next install/activate, clear caches and unregister the service worker.
-// This ensures existing clients will stop being controlled by the SW and will fetch
-// media resources directly from the network (useful when debugging missing media).
-try {
-  self.addEventListener('install', (event) => {
-    event.waitUntil((async () => {
-      try {
-        const ks = await caches.keys();
-        await Promise.all(ks.map(k => caches.delete(k)));
-        try { await self.skipWaiting(); } catch (e) {}
-        console.log('[SW][admin-cleanup] cleared caches and skipWaiting requested');
-      } catch (e) { console.warn('[SW][admin-cleanup] install cleanup failed', e); }
-    })());
-  });
-
-  self.addEventListener('activate', (event) => {
-    event.waitUntil((async () => {
-      try {
-        // Attempt to unregister this service worker so clients will no longer be controlled.
-        await self.registration.unregister();
-        console.log('[SW][admin-cleanup] unregistered service worker on activate');
-      } catch (e) { console.warn('[SW][admin-cleanup] activate cleanup failed', e); }
-    })());
-  });
-} catch (e) {
-  console.warn('[SW][admin-cleanup] setup failed', e);
-}
-
 const RUNTIME_MAX_ENTRIES = 120; // quota: max number of entries
 
 function log(...args) {
